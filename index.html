@@ -9,8 +9,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="game.css">
+  <script>
+    // Pide siempre la última versión de los archivos del juego, para que después de una
+    // actualización nadie se quede con archivos viejos guardados en el navegador
+    window.V = Date.now().toString(36);
+    document.write(['style.css', 'game.css'].map(f => '<link rel="stylesheet" href="' + f + '?v=' + V + '">').join(''));
+  </script>
 </head>
 <body>
   <div class="bg-deco" aria-hidden="true">
@@ -385,16 +389,15 @@
   <script defer src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
   <script defer src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  <script defer src="words.js"></script>
-  <script defer src="net.js"></script>
-  <script defer src="match.js"></script>
-  <script defer src="host.js"></script>
-  <script defer src="screens.js"></script>
-  <script defer src="modes.js"></script>
-  <script defer src="music.js"></script>
-  <script defer src="ytmusic.js"></script>
-  <script defer src="extras.js"></script>
-  <script defer src="teach.js"></script>
-  <script defer src="app.js"></script>
+  <script>
+    // Archivos del juego, en orden y siempre en su última versión
+    ['words.js', 'net.js', 'match.js', 'host.js', 'screens.js', 'modes.js', 'music.js', 'ytmusic.js', 'extras.js', 'teach.js', 'app.js']
+      .forEach(f => {
+        const s = document.createElement('script');
+        s.src = f + '?v=' + window.V;
+        s.async = false; // se ejecutan en este orden
+        document.body.appendChild(s);
+      });
+  </script>
 </body>
 </html>
