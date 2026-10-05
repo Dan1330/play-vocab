@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Vocab Duel · Inglés ⇄ Español</title>
+  <meta name="description" content="Duelo 1 vs 1 de vocabulario inglés-español con código de sala, sin registro.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👑</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Vocab<b>Duel</b></div>
+    <div class="topbar-right">
+      <span id="netStatus" class="net hidden"></span>
+      <button id="muteBtn" class="icon-btn" type="button" title="Sonido">🔊</button>
+    </div>
+  </header>
+
+  <main id="app">
+    <!-- INICIO -->
+    <section id="screen-home" class="screen">
+      <div class="card">
+        <h1 class="title">¿Quién sabe más palabras?</h1>
+        <p class="subtitle">Duelo 1 vs 1 · <span class="lang en">EN</span> ⇄ <span class="lang es">ES</span></p>
+        <div id="inviteBanner" class="invite hidden">Te han invitado a la sala <b id="inviteCode"></b></div>
+        <div class="profile">
+          <button id="avatarBtn" class="avatar avatar-big" type="button" title="Cambiar avatar"></button>
+          <div class="field">
+            <label for="nameInput">Tu nombre</label>
+            <input id="nameInput" maxlength="16" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <div id="avatarGrid" class="avatar-grid hidden"></div>
+        <button id="createBtn" class="btn btn-primary btn-block" type="button">🎮 Crear sala</button>
+        <div class="divider"><span>o únete con un código</span></div>
+        <form id="joinForm" class="join-row">
+          <input id="codeInput" maxlength="5" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false">
+          <button id="joinBtn" class="btn btn-secondary" type="submit">Unirse</button>
+        </form>
+        <p id="homeMsg" class="msg"></p>
+      </div>
+      <p class="foot">Sin registro · Las tildes no son obligatorias, pero si las pones tienen que estar bien puestas.</p>
+    </section>
+
+    <!-- SALA -->
+    <section id="screen-lobby" class="screen hidden">
+      <div class="card">
+        <div class="room-box">
+          <span class="label">Código de sala</span>
+          <div id="roomCode" class="room-code"></div>
+          <div class="row">
+            <button id="copyLinkBtn" class="btn btn-small btn-secondary" type="button">🔗 Copiar enlace</button>
+            <button id="shareBtn" class="btn btn-small btn-ghost hidden" type="button">📤 Compartir</button>
+          </div>
+        </div>
+        <div id="lobbyPlayers" class="versus"></div>
+        <div id="settings" class="settings">
+          <div class="setting">
+            <span class="label">Palabras</span>
+            <div class="seg" data-key="set">
+              <button type="button" data-val="all">Todas</button>
+              <button type="button" data-val="skills">Soft skills</button>
+              <button type="button" data-val="film">Audiovisual</button>
+            </div>
+          </div>
+          <div class="setting">
+            <span class="label">Tiempo por palabra</span>
+            <div class="seg" data-key="time">
+              <button type="button" data-val="10">10 s</button>
+              <button type="button" data-val="15">15 s</button>
+              <button type="button" data-val="20">20 s</button>
+              <button type="button" data-val="30">30 s</button>
+            </div>
+          </div>
+          <div class="setting">
+            <span class="label">La palabra sale en…</span>
+            <div class="seg" data-key="dir">
+              <button type="button" data-val="mix">Mezclado</button>
+              <button type="button" data-val="en">Inglés</button>
+              <button type="button" data-val="es">Español</button>
+            </div>
+          </div>
+        </div>
+        <button id="startBtn" class="btn btn-primary btn-block" type="button">▶ Empezar partida</button>
+        <p id="lobbyMsg" class="msg"></p>
+        <button class="btn btn-link leave-btn" type="button">Salir de la sala</button>
+      </div>
+    </section>
+
+    <!-- PARTIDA -->
+    <section id="screen-game" class="screen hidden">
+      <div id="scoreboard" class="scoreboard"></div>
+      <div class="card question">
+        <div class="q-top">
+          <span id="roundText" class="pill"></span>
+          <span id="timeLeft" class="pill"></span>
+        </div>
+        <div id="langHint" class="lang-hint"></div>
+        <div id="promptText" class="prompt"></div>
+        <div class="timer"><div id="timerBar" class="timer-bar"></div></div>
+        <form id="answerForm" class="answer-row">
+          <input id="answerInput" maxlength="60" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Escribe la traducción…">
+          <button id="sendBtn" class="btn btn-primary" type="submit">Enviar</button>
+        </form>
+        <button id="skipBtn" class="btn btn-link" type="button">No lo sé 🤷</button>
+        <div id="answerStatus" class="answer-status"></div>
+        <div id="revealBox" class="reveal hidden"></div>
+      </div>
+    </section>
+
+    <!-- FINAL -->
+    <section id="screen-end" class="screen hidden">
+      <div class="card end">
+        <h2 id="endTitle" class="end-title"></h2>
+        <div id="podium" class="podium"></div>
+        <div class="row">
+          <button id="rematchBtn" class="btn btn-primary" type="button">🔁 Volver a jugar</button>
+          <button id="toLobbyBtn" class="btn btn-secondary" type="button">⚙️ Cambiar ajustes</button>
+        </div>
+        <p id="endMsg" class="msg"></p>
+        <details class="review">
+          <summary>📋 Ver todas las palabras</summary>
+          <div id="reviewList"></div>
+        </details>
+        <button class="btn btn-link leave-btn" type="button">Salir de la sala</button>
+      </div>
+    </section>
+  </main>
+
+  <div id="countdown" class="countdown hidden"><div><small>¡Prepárate!</small><span id="countNum">3</span></div></div>
+  <div id="connLost" class="conn-lost hidden">📡 Conexión perdida… reintentando</div>
+  <div id="toast" class="toast"></div>
+  <div id="confetti" class="confetti"></div>
+
+  <script defer src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
+  <script defer src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script defer src="words.js"></script>
+  <script defer src="net.js"></script>
+  <script defer src="host.js"></script>
+  <script defer src="screens.js"></script>
+  <script defer src="app.js"></script>
+</body>
+</html>
