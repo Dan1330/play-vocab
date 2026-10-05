@@ -10,13 +10,18 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="game.css">
 </head>
 <body>
+  <div class="bg-deco" aria-hidden="true">
+    <span>🎬</span><span>⭐</span><span>🎥</span><span>📽️</span><span>🏆</span><span>🎞️</span><span>✨</span><span>🎤</span><span>🍿</span><span>💬</span>
+  </div>
   <header class="topbar">
     <div class="brand">Vocab<b>Duel</b></div>
     <div class="topbar-right">
       <span id="netStatus" class="net hidden"></span>
-      <button id="muteBtn" class="icon-btn" type="button" title="Sonido">🔊</button>
+      <button id="musicBtn" class="icon-btn" type="button" title="Música">🎵</button>
+      <button id="muteBtn" class="icon-btn" type="button" title="Efectos de sonido">🔊</button>
     </div>
   </header>
 
@@ -46,6 +51,7 @@
             <span class="m-ico">🎉</span><span class="m-title">Multijugador</span><span class="m-sub">De 1 a 40 personas</span>
           </button>
         </div>
+        <button id="homeWordsBtn" class="btn btn-ghost btn-block words-open home-words" type="button">📖 Ver todas las palabras</button>
         <div class="divider"><span>o únete a una sala con un código</span></div>
         <form id="joinForm" class="join-row">
           <input id="codeInput" maxlength="5" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false">
@@ -53,7 +59,7 @@
         </form>
         <p id="homeMsg" class="msg"></p>
       </div>
-      <p class="foot">El primero que acierta se lleva 2 puntos ⚡ · Las tildes no son obligatorias, pero si las pones tienen que estar bien puestas.</p>
+      <p class="foot">⚡ Acierta en menos de 5 s: +1 extra · 🔥 Racha de 3 seguidas: +1 extra (de 5: +2) · Las tildes no son obligatorias, pero si las pones tienen que estar bien puestas.</p>
     </section>
 
     <!-- PRÁCTICA: AJUSTES -->
@@ -63,6 +69,7 @@
         <p class="subtitle">Tú solo y sin prisas. Al final puedes repetir las que falles.</p>
         <div id="sSettingsSlot"></div>
         <button id="soloStartBtn" class="btn btn-primary btn-block" type="button">▶ Empezar práctica</button>
+        <button class="btn btn-link words-open" type="button">📖 Ver la lista de palabras</button>
         <button class="btn btn-link leave-btn" type="button">← Volver al inicio</button>
       </div>
     </section>
@@ -75,14 +82,15 @@
           <div id="roomCode" class="room-code"></div>
           <div class="row">
             <button id="copyLinkBtn" class="btn btn-small btn-secondary" type="button">🔗 Copiar enlace</button>
+            <button class="btn btn-small btn-ghost qr-open" type="button">📱 Código QR</button>
             <button id="shareBtn" class="btn btn-small btn-ghost hidden" type="button">📤 Compartir</button>
           </div>
         </div>
         <div id="lobbyPlayers" class="versus"></div>
         <div id="settings" class="settings">
           <div class="setting">
-            <span class="label">Palabras</span>
-            <div class="seg" data-key="set"></div>
+            <span class="label">Temas <small>· marca los que quieras</small></span>
+            <div class="checks" data-key="sets"></div>
           </div>
           <div class="setting">
             <span class="label">Tiempo por palabra</span>
@@ -95,6 +103,13 @@
             </div>
           </div>
           <div class="setting">
+            <span class="label">Respuesta</span>
+            <div class="seg" data-key="answer">
+              <button type="button" data-val="type">✍️ Escribir</button>
+              <button type="button" data-val="quiz">🟦 Quiz (4 opciones)</button>
+            </div>
+          </div>
+          <div class="setting">
             <span class="label">La palabra sale en…</span>
             <div class="seg" data-key="dir">
               <button type="button" data-val="mix">Mezclado</button>
@@ -103,8 +118,10 @@
             </div>
           </div>
         </div>
+        <div class="rules">✅ Acierto: <b>+1</b> · ⚡ En menos de 5 s: <b>+1</b> · 🔥 Racha de 3: <b>+1</b> · 🔥🔥 Racha de 5: <b>+2</b></div>
         <button id="startBtn" class="btn btn-primary btn-block" type="button">▶ Empezar partida</button>
         <p id="lobbyMsg" class="msg"></p>
+        <button class="btn btn-link words-open" type="button">📖 Repasar las palabras</button>
         <button class="btn btn-link leave-btn" type="button">Salir de la sala</button>
       </div>
     </section>
@@ -117,14 +134,17 @@
           <div id="pRoomCode" class="room-code"></div>
           <div class="row">
             <button id="pCopyLinkBtn" class="btn btn-small btn-secondary" type="button">🔗 Copiar enlace</button>
+            <button class="btn btn-small btn-ghost qr-open" type="button">📱 Código QR</button>
             <button id="pShareBtn" class="btn btn-small btn-ghost hidden" type="button">📤 Compartir</button>
           </div>
         </div>
         <div class="players-head"><span class="label">Jugadores</span><span id="pCount" class="pill"></span></div>
         <div id="pPlayers" class="player-grid"></div>
         <div id="pSettingsSlot"></div>
+        <div class="rules">✅ Acierto: <b>+1</b> · ⚡ En menos de 5 s: <b>+1</b> · 🔥 Racha de 3: <b>+1</b> · 🔥🔥 Racha de 5: <b>+2</b></div>
         <button id="pStartBtn" class="btn btn-primary btn-block" type="button">▶ Empezar partida</button>
         <p id="pLobbyMsg" class="msg"></p>
+        <button class="btn btn-link words-open" type="button">📖 Repasar las palabras</button>
         <button class="btn btn-link leave-btn" type="button">Salir de la sala</button>
       </div>
     </section>
@@ -135,11 +155,14 @@
       <div class="card question">
         <div class="q-top">
           <span id="roundText" class="pill"></span>
+          <span id="fastBadge" class="fast-badge hidden">⚡ +1 si aciertas ya</span>
           <span id="timeLeft" class="pill"></span>
         </div>
         <div id="langHint" class="lang-hint"></div>
         <div id="promptText" class="prompt"></div>
+        <div id="hintBox" class="hint hidden"></div>
         <div class="timer"><div id="timerBar" class="timer-bar"></div></div>
+        <div id="quizBox" class="quiz hidden"></div>
         <form id="answerForm" class="answer-row">
           <input id="answerInput" maxlength="60" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Escribe la traducción…">
           <button id="sendBtn" class="btn btn-primary" type="submit">Enviar</button>
@@ -148,24 +171,29 @@
         <div id="answerStatus" class="answer-status"></div>
         <button id="editBtn" class="btn btn-small btn-ghost hidden" type="button">✏️ Cancelar y editar</button>
         <div id="revealBox" class="reveal hidden"></div>
-        <button id="quitBtn" class="btn btn-link hidden" type="button">✕ Salir</button>
+        <div class="game-actions">
+          <button id="endGameBtn" class="btn btn-small btn-ghost hidden" type="button">⏹ Terminar partida</button>
+          <button id="quitBtn" class="btn btn-link hidden" type="button">✕ Salir</button>
+        </div>
       </div>
     </section>
 
     <!-- FINAL 1 VS 1 -->
     <section id="screen-end" class="screen hidden">
       <div class="card end">
-        <h2 id="endTitle" class="end-title"></h2>
-        <div id="podium" class="podium"></div>
-        <div class="row">
+        <div class="drumroll">🥁 Y el ganador es…</div>
+        <h2 id="endTitle" class="end-title ceremony-title"></h2>
+        <div id="podium" class="podium ceremony"></div>
+        <div class="row after-ceremony">
           <button id="rematchBtn" class="btn btn-primary" type="button">🔁 Volver a jugar</button>
           <button id="toLobbyBtn" class="btn btn-secondary" type="button">⚙️ Cambiar ajustes</button>
         </div>
-        <p id="endMsg" class="msg"></p>
-        <details class="review">
-          <summary>📋 Ver todas las palabras</summary>
+        <p id="endMsg" class="msg after-ceremony"></p>
+        <details class="review after-ceremony">
+          <summary>📋 Repaso de la partida</summary>
           <div id="reviewList"></div>
         </details>
+        <button class="btn btn-link words-open after-ceremony" type="button">📖 Lista de palabras</button>
         <button class="btn btn-link leave-btn" type="button">Salir de la sala</button>
       </div>
     </section>
@@ -173,19 +201,21 @@
     <!-- FINAL MULTIJUGADOR -->
     <section id="screen-party-end" class="screen hidden">
       <div class="card end">
-        <h2 id="peTitle" class="end-title"></h2>
-        <p id="peMine" class="subtitle"></p>
-        <div id="pePodium" class="podium podium3"></div>
-        <div id="peRanking" class="leaderboard"></div>
-        <div class="row">
+        <div class="drumroll">🥁 Y el ganador es…</div>
+        <h2 id="peTitle" class="end-title ceremony-title"></h2>
+        <p id="peMine" class="subtitle ceremony-title"></p>
+        <div id="pePodium" class="podium podium3 ceremony"></div>
+        <div id="peRanking" class="leaderboard after-ceremony"></div>
+        <div class="row after-ceremony">
           <button id="peAgainBtn" class="btn btn-primary" type="button">🔁 Jugar otra vez</button>
           <button id="peLobbyBtn" class="btn btn-secondary" type="button">⚙️ Cambiar ajustes</button>
         </div>
-        <p id="peMsg" class="msg"></p>
-        <details class="review">
-          <summary>📋 Ver todas las palabras</summary>
+        <p id="peMsg" class="msg after-ceremony"></p>
+        <details class="review after-ceremony">
+          <summary>📋 Repaso de la partida</summary>
           <div id="peReview"></div>
         </details>
+        <button class="btn btn-link words-open after-ceremony" type="button">📖 Lista de palabras</button>
         <button class="btn btn-link leave-btn" type="button">Salir de la sala</button>
       </div>
     </section>
@@ -201,10 +231,108 @@
         </div>
         <div id="seFails" class="fails"></div>
         <button id="seSettingsBtn" class="btn btn-link" type="button">⚙️ Cambiar ajustes</button>
+        <button class="btn btn-link words-open" type="button">📖 Lista de palabras</button>
         <button class="btn btn-link leave-btn" type="button">🏠 Menú principal</button>
       </div>
     </section>
   </main>
+
+  <!-- LISTA DE PALABRAS -->
+  <div id="wordsModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Todas las palabras">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>📖 Todas las palabras</h2>
+        <button id="wordsClose" class="close-btn" type="button" title="Cerrar">✕</button>
+      </div>
+      <input id="wordsSearch" placeholder="🔍 Buscar en inglés o en español…" autocomplete="off" spellcheck="false">
+      <div id="wordsCats" class="seg"></div>
+      <div id="wordsHide" class="seg">
+        <button type="button" data-hide="" class="on">👀 Ver todo</button>
+        <button type="button" data-hide="en">Tapar inglés</button>
+        <button type="button" data-hide="es">Tapar español</button>
+      </div>
+      <div id="wordsCount" class="words-count"></div>
+      <div id="wordsList" class="words-list"></div>
+      <button id="wordsPractice" class="btn btn-primary btn-block" type="button">🎯 Practicar esta lista</button>
+    </div>
+  </div>
+
+  <!-- 1 VS 1: CONTRA QUIÉN -->
+  <div id="duelModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Elegir rival">
+    <div class="modal-card duel-card">
+      <div class="modal-head">
+        <h2>⚔️ 1 vs 1</h2>
+        <button id="duelClose" class="close-btn" type="button" title="Cerrar">✕</button>
+      </div>
+      <button id="duelFriendBtn" class="choice choice-friend" type="button">
+        <span class="c-ico">👫</span><span><b>Contra un amigo</b><small>Crea una sala y pásale el código o el enlace</small></span>
+      </button>
+      <button id="duelRandomBtn" class="choice choice-random" type="button">
+        <span class="c-ico">🎲</span><span><b>Rival al azar</b><small>Te emparejamos con alguien que también esté buscando</small></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- BUSCANDO RIVAL -->
+  <div id="searchModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Buscando rival">
+    <div class="modal-card search-card">
+      <div class="radar"><span>🔎</span></div>
+      <h2>Buscando rival…</h2>
+      <p id="searchInfo" class="msg">Conectando…</p>
+      <p class="music-note">Si no aparece nadie, prueba a jugar contra un amigo con código.</p>
+      <button id="searchCancel" class="btn btn-ghost btn-block" type="button">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- MÚSICA -->
+  <div id="musicModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Música">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>🎵 Música</h2>
+        <button id="musicClose" class="close-btn" type="button" title="Cerrar">✕</button>
+      </div>
+      <button id="musicToggle" class="btn btn-secondary btn-block" type="button"></button>
+      <div id="musicNow" class="music-now"></div>
+      <form id="ytForm" class="yt-form">
+        <label for="ytInput">▶ Poner música de YouTube</label>
+        <div class="join-row">
+          <input id="ytInput" placeholder="Pega aquí el enlace del vídeo" autocomplete="off" spellcheck="false">
+          <button id="ytSet" class="btn btn-primary" type="submit">Poner</button>
+        </div>
+      </form>
+      <p id="ytNote" class="music-note"></p>
+      <button id="ytClear" class="btn btn-link hidden" type="button">✕ Quitar YouTube y volver a la música del juego</button>
+      <p id="ytMsg" class="msg"></p>
+    </div>
+  </div>
+
+  <!-- CÓDIGO QR -->
+  <div id="qrModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Código QR">
+    <div class="modal-card qr-card">
+      <div class="modal-head">
+        <h2>📱 Escanea para unirte</h2>
+        <button id="qrClose" class="close-btn" type="button" title="Cerrar">✕</button>
+      </div>
+      <div id="qrBig" class="qr-big"></div>
+      <p id="qrNote" class="msg hidden">No se ha podido crear el QR. Usa el código o el enlace.</p>
+      <div id="qrCode" class="room-code"></div>
+      <div id="qrLink" class="qr-link"></div>
+    </div>
+  </div>
+
+  <!-- Reproductor de YouTube (pequeño) -->
+  <div id="ytBox" class="yt-box hidden">
+    <div id="ytPlayer"></div>
+    <button id="ytTap" class="btn btn-small btn-primary hidden" type="button">▶ Toca para escuchar</button>
+  </div>
+
+  <!-- Reacciones -->
+  <div id="reactBar" class="react-bar hidden">
+    <button type="button" data-e="👏">👏</button><button type="button" data-e="😂">😂</button>
+    <button type="button" data-e="😮">😮</button><button type="button" data-e="🔥">🔥</button>
+    <button type="button" data-e="😭">😭</button><button type="button" data-e="🎉">🎉</button>
+  </div>
+  <div id="reactions" class="reactions"></div>
 
   <div id="countdown" class="countdown hidden"><div><small>¡Prepárate!</small><span id="countNum">3</span></div></div>
   <div id="connLost" class="conn-lost hidden">📡 Conexión perdida… reintentando</div>
@@ -213,11 +341,16 @@
 
   <script defer src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
   <script defer src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script defer src="words.js"></script>
   <script defer src="net.js"></script>
+  <script defer src="match.js"></script>
   <script defer src="host.js"></script>
   <script defer src="screens.js"></script>
   <script defer src="modes.js"></script>
+  <script defer src="music.js"></script>
+  <script defer src="ytmusic.js"></script>
+  <script defer src="extras.js"></script>
   <script defer src="app.js"></script>
 </body>
 </html>
