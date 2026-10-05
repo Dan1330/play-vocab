@@ -46,7 +46,7 @@ const VOCAB = {
       ['Focus puller', 'Foquista', [], ['ayudante de cámara', 'primer/a ayudante de cámara']],
       ['Gaffer', 'Jefe/a de eléctricos', [], ['jefe/a de iluminación']],
       ['Sound mixer', 'Jefe/a de sonido', [], ['mezclador/a de sonido', 'técnico/a de sonido', 'sonidista']],
-      ['Boom operator', 'Microfonista', [], ['operador/a de pértiga', 'pertiguista', 'operador/a de boom']],
+      ['Boom operator', 'Microfonista', [], ['operador/a de pértiga', 'pertiguista', 'operador/a de boom', 'operador/a de pertiga']],
       ['Location manager', 'Jefe/a de localizaciones', [], ['localizador/a', 'responsable de localizaciones', 'encargado/a de localizaciones']],
       ['Costume designer', 'Diseñador/a de vestuario', [], ['figurinista', 'vestuarista']],
       ['Set designer', 'Escenógrafo/a', [], ['diseñador/a de escenografía', 'diseñador/a de decorados', 'decorador/a']],
