@@ -269,6 +269,21 @@
       </div>
       <p class="music-note">Marca las palabras que caen en el examen. Al terminar, todos los modos usarán solo estas palabras
         (en los ajustes puedes quitar «Solo las del examen»).</p>
+      <div class="exam-share">
+        <button id="examShare" class="btn btn-small btn-secondary" type="button">📤 Compartir lista</button>
+        <button id="examImportBtn" class="btn btn-small btn-ghost" type="button">📥 Importar lista</button>
+      </div>
+      <input id="examLinkBox" class="exam-link hidden" readonly aria-label="Enlace para compartir la lista">
+      <div id="examImportBox" class="exam-import hidden">
+        <b id="examImportTitle">📥 Importar una lista</b>
+        <input id="examImportInput" placeholder="Pega aquí el enlace o el código" autocomplete="off" spellcheck="false">
+        <p id="examImportInfo" class="msg"></p>
+        <div class="row">
+          <button id="examImportReplace" class="btn btn-small btn-primary" type="button" disabled>Reemplazar mi lista</button>
+          <button id="examImportAdd" class="btn btn-small btn-secondary" type="button" disabled>Añadir a mi lista</button>
+          <button id="examImportCancel" class="btn-mini" type="button">Cancelar</button>
+        </div>
+      </div>
       <div class="exam-search">
         <input id="examSearch" placeholder="🔍 Escribe una palabra y pulsa Enter para marcarla" autocomplete="off" spellcheck="false">
         <button id="examAddFound" class="btn btn-small btn-secondary hidden" type="button">✓ Marcar las encontradas</button>
@@ -379,6 +394,7 @@
   <script defer src="music.js"></script>
   <script defer src="ytmusic.js"></script>
   <script defer src="extras.js"></script>
+  <script defer src="teach.js"></script>
   <script defer src="app.js"></script>
 </body>
 </html>

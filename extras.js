@@ -10,9 +10,16 @@ const Stats = (() => {
     record(key, ok) {
       const s = data.w[key] || (data.w[key] = { ok: 0, bad: 0 });
       if (ok) s.ok++; else s.bad++;
+      s.run = ok ? (s.run || 0) + 1 : 0; // aciertos seguidos
       save();
     },
     word(key) { return data.w[key] || { ok: 0, bad: 0 }; },
+    // Nivel: 0 sin ver · 1 aprendiendo · 2 casi · 3 dominada (3 aciertos seguidos)
+    level(key) {
+      const s = data.w[key];
+      if (!s) return 0;
+      return s.run >= 3 ? 3 : s.run === 2 ? 2 : 1;
+    },
     // Las que más te cuestan: las fallas al menos 1 de cada 3 veces (máx. 15)
     hardKeys() {
       return Object.entries(data.w).filter(([, s]) => s.bad > 0 && rate(s) >= 0.34)
@@ -61,6 +68,75 @@ const Exam = (() => {
 })();
 let examQuery = '';
 
+// ---------- Compartir la lista del examen (enlace o código) ----------
+// Cada palabra viaja como una "huella" de 5 letras de cómo está escrita: si luego se añaden
+// palabras a words.js, los enlaces antiguos siguen funcionando.
+function wordHash(key) {
+  let h = 2166136261;
+  for (const ch of key) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); }
+  return ((h >>> 0) % 60466176).toString(36).padStart(5, '0'); // 36^5 combinaciones
+}
+const examCode = keys => 'v1-' + keys.map(wordHash).join('');
+const examLink = () => location.href.split(/[?#]/)[0] + '?examen=' + examCode(Exam.keys());
+
+// Lee un enlace o un código pegado: { keys, missing } (o null si no es válido)
+function parseExamCode(text) {
+  const m = String(text || '').match(/v1-([0-9a-z]+)/i);
+  if (!m) return null;
+  const byHash = new Map(WORDS.map(w => [wordHash(wordKeyOf(w)), wordKeyOf(w)]));
+  const keys = new Set();
+  let missing = 0;
+  for (const chunk of m[1].toLowerCase().match(/.{5}/g) || []) {
+    if (byHash.has(chunk)) keys.add(byHash.get(chunk));
+    else missing++;
+  }
+  return { keys: [...keys], missing };
+}
+
+let examImport = null; // lista leída, pendiente de importar
+function showExamImport(text = '', fromLink = false) {
+  $('examImportBox').classList.remove('hidden');
+  $('examImportInput').value = text;
+  $('examImportTitle').textContent = fromLink ? '📩 Te han pasado una lista de palabras del examen' : '📥 Importar una lista';
+  readExamImport();
+}
+
+function readExamImport() {
+  const text = $('examImportInput').value.trim();
+  examImport = text ? parseExamCode(text) : null;
+  const info = $('examImportInfo');
+  if (!text) info.textContent = 'Pega aquí el enlace o el código que te hayan pasado.';
+  else if (!examImport || !examImport.keys.length) info.textContent = '❌ Ese enlace o código no es válido.';
+  else info.textContent = `✓ ${plural(examImport.keys.length, 'palabra', 'palabras')}` + (examImport.missing ? ` (${examImport.missing} no existen en esta versión)` : '');
+  info.classList.toggle('error', !!text && !(examImport && examImport.keys.length));
+  const ok = !!(examImport && examImport.keys.length);
+  $('examImportReplace').disabled = !ok;
+  $('examImportAdd').disabled = !ok;
+}
+
+function applyExamImport(replace) {
+  if (!examImport || !examImport.keys.length) return;
+  if (replace) Exam.setMany(Exam.keys(), false);
+  Exam.setMany(examImport.keys, true);
+  toast(`📝 ${plural(examImport.keys.length, 'palabra importada', 'palabras importadas')}`);
+  examImport = null;
+  $('examImportBox').classList.add('hidden');
+  renderExam();
+}
+
+// En el móvil abre el menú de compartir; en el ordenador copia el enlace (y lo enseña por si acaso)
+function shareExam() {
+  if (!Exam.count) return toast('Primero marca alguna palabra');
+  const url = examLink();
+  $('examLinkBox').classList.remove('hidden');
+  $('examLinkBox').value = url;
+  if (navigator.share && /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)) {
+    navigator.share({ title: 'Palabras del examen', text: `📝 ${Exam.count} palabras del examen para Vocab Duel`, url }).catch(() => {});
+  } else {
+    copyText(url, `¡Enlace copiado! (${Exam.count} palabras). Pásaselo a quien quieras`);
+  }
+}
+
 function renderExam() {
   const q = stripAccents(norm(examQuery));
   $('examTotal').textContent = Exam.count ? `${plural(Exam.count, 'palabra seleccionada', 'palabras seleccionadas')}` : 'Aún no has seleccionado ninguna';
@@ -81,6 +157,7 @@ function renderExam() {
       }).join('')}</div>`;
   }).join('') || '<p class="msg">No hay ninguna palabra con esa búsqueda.</p>');
   $('examPractice').classList.toggle('hidden', !Exam.count || role === 'host' || role === 'guest');
+  $('examShare').disabled = !Exam.count;
   $('homeExamBtn').textContent = Exam.count ? `📝 Palabras del examen (${Exam.count})` : '📝 Palabras del examen';
 }
 

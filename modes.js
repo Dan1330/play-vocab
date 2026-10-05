@@ -229,7 +229,9 @@ function renderWords() {
   const cell = (w, i, lang) => {
     if (wordsView.hide === lang && !wordsView.shown.has(i)) return `<div class="wcell covered" data-reveal="${i}">👆 Toca para ver</div>`;
     const bad = lang === 'en' ? Stats.word(wordKeyOf(w)).bad : 0;
-    return `<div class="wcell">${bad ? `<span class="wbad" title="Veces que la has fallado">❌ ${bad}</span>` : ''}${wordCellHTML(w[lang])}</div>`;
+    const lvl = lang === 'en' ? Stats.level(wordKeyOf(w)) : 0;
+    const lvlBadge = lvl ? `<span class="wlevel" title="${['', 'Aprendiendo', 'Casi dominada', 'Dominada'][lvl]}">${['', '🌱', '🌿', '🌳'][lvl]}</span>` : '';
+    return `<div class="wcell">${bad ? `<span class="wbad" title="Veces que la has fallado">❌ ${bad}</span>` : ''}${lvlBadge}${wordCellHTML(w[lang])}</div>`;
   };
   $('wordsList').innerHTML = !list.length ? '<p class="msg">No hay ninguna palabra con esa búsqueda.</p>'
     : `<div class="wrow whead"><div>${LANG.en} Inglés</div><div>${LANG.es} Español</div></div>`
@@ -251,9 +253,7 @@ function closeWords() {
 
 // ---------- Práctica ----------
 function soloPct() {
-  const p = S.players[0];
-  const total = (S.history || []).length || S.total;
-  return total ? p.correct / total : 0;
+  return soloSummary().pct / 100;
 }
 
 function renderSoloBoard() {
@@ -264,42 +264,90 @@ function renderSoloBoard() {
   lastScores[p.id] = p.correct;
   $('scoreboard').innerHTML = `<div class="party-bar solo${p.streak >= 3 ? ' hot' : ''}">
     <div class="pb-info">✅ <b class="sb-score${bump}">${p.correct}</b> ${p.correct === 1 ? 'acierto' : 'aciertos'} &nbsp; ❌ <b>${fails}</b> ${fails === 1 ? 'fallo' : 'fallos'}</div>
-    <div class="pb-pos">${p.streak >= 2 ? `🔥 Racha de ${p.streak}` : p.best >= 2 ? `Mejor racha: ${p.best}` : ''}</div></div>`;
+    <div class="pb-pos">${host && host.deck[S.round - 1] && host.deck[S.round - 1].tries ? '🔁 Repaso de una que fallaste'
+      : p.streak >= 2 ? `🔥 Racha de ${p.streak}` : p.best >= 2 ? `Mejor racha: ${p.best}` : ''}</div></div>`;
 }
 
 function soloRevealHTML() {
   const r = S.reveal;
   const res = r.results[me.id] || { text: '', ok: 0 };
+  const quiz = typeof r.correct === 'number';
+  const card = host && host.deck[S.round - 1];
+  const learn = !!S.settings.learn;
+  const retype = !res.ok && learn && !quiz; // modo aprender: escríbela bien para seguir
+  const tips = !res.ok && !quiz && card ? Teach.explain(res.text, card) : [];
+  const enWord = S.q.from === 'en' ? S.q.prompt : r.answer;
+  const esWord = S.q.from === 'es' ? S.q.prompt : r.answer;
   return `${splashHTML(res)}
     <div class="sol-label">Respuesta correcta</div><div class="sol">${esc(r.answer)}</div>${revealAlsoHTML(r)}
-    ${!res.ok && res.text ? `<div class="also">Tú pusiste: “${esc(res.text)}”</div>` : ''}
+    <div class="learn-tools">
+      <button type="button" class="btn-mini" data-say="en" data-text="${esc(enWord)}">🔊 ${esc(enWord)}</button>
+      <button type="button" class="btn-mini" data-say="es" data-text="${esc(esWord)}">🔊 ${esc(esWord)}</button>
+      <a class="btn-mini" href="${Teach.dictLink(enWord)}" target="_blank" rel="noopener">📖 Diccionario</a>
+    </div>
+    ${tips.length ? `<div class="tips"><b>💡 Por qué has fallado</b><ul>${tips.map(t => `<li>${t}</li>`).join('')}</ul></div>` : ''}
+    ${!res.ok && res.text && !quiz ? `<div class="also">Tú pusiste: “${esc(res.text)}”</div>` : ''}
     ${hintRound === S.round && res.ok ? '<div class="also">💡 Con pista: la repasarás en «Mis difíciles»</div>' : ''}
-    <button class="btn btn-secondary btn-small next-btn" type="button" data-next>Siguiente ▶ <small>(Enter)</small></button>
-    <div class="next-bar"><div id="nextBar"></div></div>`;
+    ${!res.ok && learn && card && (card.tries || 0) < 2 ? '<div class="also">🔁 Te la volveré a preguntar dentro de poco.</div>' : ''}
+    ${retype ? `<div class="retype">
+        <label for="retypeInput">✍️ Escríbela bien para seguir (así se te queda)</label>
+        <div class="answer-row">
+          <input id="retypeInput" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="${esc(expandForms([r.answer])[0])}">
+          <button class="btn btn-primary" type="button" data-retype>Comprobar</button>
+        </div>
+        <button class="btn-link" type="button" data-next>Saltar ▶</button>
+      </div>`
+    : `<button class="btn btn-secondary btn-small next-btn" type="button" data-next>Siguiente ▶ <small>(Enter)</small></button>
+       ${S.duration ? '<div class="next-bar"><div id="nextBar"></div></div>' : ''}`}`;
+}
+
+// Resumen de la práctica por palabra: a la primera, aprendidas (falladas y luego bien) y por repasar
+function soloSummary() {
+  const byKey = new Map();
+  for (const h of S.history || []) {
+    const k = wordKey(h.from, h.prompt, h.answer);
+    if (!byKey.has(k)) byKey.set(k, { h, tries: [] });
+    byKey.get(k).tries.push((h.results[me.id] || {}).ok ? 1 : 0);
+  }
+  const all = [...byKey.values()];
+  const first = all.filter(e => e.tries[0]);
+  const learned = all.filter(e => !e.tries[0] && e.tries.some(Boolean));
+  const pending = all.filter(e => !e.tries.some(Boolean));
+  return { total: all.length, first, learned, pending, pct: all.length ? Math.round((first.length / all.length) * 100) : 0 };
 }
 
 function renderSoloEnd() {
   const p = S.players[0];
-  const hist = S.history || [];
-  const total = hist.length;
-  const pct = total ? Math.round((p.correct / total) * 100) : 0;
+  const sum = soloSummary();
+  const total = sum.total;
+  const pct = sum.pct;
   $('seTitle').textContent = pct === 100 ? '¡Perfecto! 🏆' : pct >= 80 ? '¡Muy bien! 💪' : pct >= 50 ? '¡Vas bien! 👍' : '¡A seguir practicando! 📚';
   const setName = soloRun.name;
   const records = [];
   if (soloRecord.pct) records.push(`🏅 ¡Nuevo récord! Tu mejor resultado ${setName}`);
   if (soloRecord.streak) records.push(`🔥 ¡Récord de racha: ${p.best} seguidas!`);
   const best = soloRun.retry ? null : Stats.bestPct(soloRun.key);
-  $('seScore').innerHTML = `<div class="big">${p.correct}<small> / ${total}</small></div>
-    <div class="detail">${pct}% de aciertos · mejor racha 🔥 ${p.best}</div>
+  const mastered = sum.first.concat(sum.learned).filter(e => Stats.level(wordKey(e.h.from, e.h.prompt, e.h.answer)) === 3).length;
+  $('seScore').innerHTML = `<div class="big">${sum.first.length}<small> / ${total}</small></div>
+    <div class="detail">${pct}% a la primera · mejor racha 🔥 ${p.best}</div>
+    <div class="learn-sum">
+      <span class="ls ok">✅ ${sum.first.length} a la primera</span>
+      ${sum.learned.length ? `<span class="ls learn">🧠 ${sum.learned.length} ${sum.learned.length === 1 ? 'aprendida' : 'aprendidas'}</span>` : ''}
+      ${sum.pending.length ? `<span class="ls todo">📚 ${sum.pending.length} por repasar</span>` : ''}
+      ${mastered ? `<span class="ls master">🌳 ${mastered} ${mastered === 1 ? 'dominada' : 'dominadas'}</span>` : ''}
+    </div>
     ${records.length ? `<div class="records">${records.map(x => `<span>${x}</span>`).join('')}</div>`
       : best !== null ? `<div class="detail">Tu récord ${setName}: ${best}%</div>` : ''}`;
-  const fails = hist.filter(h => !(h.results[me.id] || {}).ok);
-  $('seRetryBtn').classList.toggle('hidden', !fails.length);
-  $('seRetryBtn').textContent = `🔁 Repetir fallos (${fails.length})`;
-  $('seFails').innerHTML = !fails.length ? '<p class="msg">¡No has fallado ninguna! 🎉</p>'
-    : '<span class="label">Palabras falladas</span>' + fails.map(h => {
-      const res = h.results[me.id] || {};
-      return `<div class="fail"><div>${LANG[h.from]} <b>${esc(h.prompt)}</b> <span class="arrow">→</span> ${LANG[otherLang(h.from)]} <b class="ok-text">${esc(h.answer)}</b></div>
-        <small>Tú: ${res.text ? esc(res.text) : '—'}</small></div>`;
+  const missed = sum.learned.concat(sum.pending); // las que fallaste alguna vez
+  $('seRetryBtn').classList.toggle('hidden', !missed.length);
+  $('seRetryBtn').textContent = `🔁 Repetir fallos (${missed.length})`;
+  $('seFails').innerHTML = !missed.length ? '<p class="msg">¡No has fallado ninguna! 🎉</p>'
+    : '<span class="label">Para repasar</span>' + missed.map(e => {
+      const h = e.h;
+      const wrong = (S.history || []).filter(x => x.prompt === h.prompt && !(x.results[me.id] || {}).ok).map(x => x.results[me.id].text).filter(Boolean);
+      const learnedIt = e.tries.some(Boolean);
+      return `<div class="fail${learnedIt ? ' learned' : ''}"><div>${LANG[h.from]} <b>${esc(h.prompt)}</b> <span class="arrow">→</span> ${LANG[otherLang(h.from)]} <b class="ok-text">${esc(h.answer)}</b>
+        ${learnedIt ? '<span class="tag-learned">🧠 aprendida</span>' : ''}</div>
+        <small>Tú: ${wrong.length ? wrong.map(esc).join(' · ') : '—'}</small></div>`;
     }).join('');
 }

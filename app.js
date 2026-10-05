@@ -34,7 +34,7 @@ let soloRun = { key: '', name: '', retry: false }; // qué temas se están pract
 
 // Ajustes de la práctica: temas marcados, "solo mis difíciles", tiempo e idioma
 const soloSettings = (() => {
-  const s = { sets: [...ALL_SETS], hard: false, time: 0, dir: 'mix', answer: 'type', exam: Exam.on };
+  const s = { sets: [...ALL_SETS], hard: false, time: 0, dir: 'mix', answer: 'type', exam: Exam.on, learn: true };
   try {
     const saved = JSON.parse(local.get('vd_solo') || '{}');
     if (validSets(saved.sets).length) s.sets = validSets(saved.sets);
@@ -43,6 +43,7 @@ const soloSettings = (() => {
     if ([0, ...TIME_OPTIONS].includes(saved.time)) s.time = saved.time;
     if (['mix', 'en', 'es'].includes(saved.dir)) s.dir = saved.dir;
     if (['type', 'quiz'].includes(saved.answer)) s.answer = saved.answer;
+    if (typeof saved.learn === 'boolean') s.learn = saved.learn;
   } catch (e) {}
   return s;
 })();
@@ -150,6 +151,12 @@ function cloneSettings(id, slotId) {
 cloneSettings('pSettings', 'pSettingsSlot');
 const sBox = cloneSettings('sSettings', 'sSettingsSlot');
 sBox.querySelector('[data-key="time"]').insertAdjacentHTML('beforeend', '<button type="button" data-val="0">Sin límite</button>');
+sBox.insertAdjacentHTML('afterbegin', `<div class="setting">
+  <span class="label">Modo</span>
+  <div class="seg" data-key="learn">
+    <button type="button" data-val="true">🧠 Aprender <small>(te explica los fallos y los repasa)</small></button>
+    <button type="button" data-val="false">🎯 Normal</button>
+  </div></div>`);
 sBox.querySelector('[data-key="sets"]').insertAdjacentHTML('afterend', `<label class="check-chip hard-chip" id="hardChip">
   <input type="checkbox" value="hard" id="hardChk"><span class="cbox"></span>
   <span class="ctext">🧠 Solo mis difíciles <small></small></span></label>`);
@@ -199,7 +206,8 @@ function readSetting(e) {
   const b = e.target.closest('button[data-val]');
   if (!b || b.disabled) return null;
   const key = b.parentElement.dataset.key;
-  return { [key]: key === 'time' ? Number(b.dataset.val) : b.dataset.val };
+  const v = b.dataset.val;
+  return { [key]: key === 'time' ? Number(v) : v === 'true' ? true : v === 'false' ? false : v };
 }
 const hostSettings = e => {
   const patch = readSetting(e);
@@ -581,12 +589,33 @@ document.addEventListener('keydown', e => { // modo quiz: teclas 1-4
   submitChoice(Number(e.key) - 1);
 });
 $('editBtn').onclick = editAnswer;
-$('revealBox').onclick = e => { if (e.target.closest('[data-next]') && host) host.skipReveal(); };
-document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.repeat && host && S && S.mode === 'solo' && S.phase === 'reveal') {
-    e.preventDefault();
+// Modo aprender: comprueba la palabra reescrita y, si está bien, sigue
+function checkRetype() {
+  const inp = document.getElementById('retypeInput');
+  const card = host && S && host.deck[S.round - 1];
+  if (!inp || !card) return;
+  if (checkMulti(inp.value, card.accepted)) {
+    Sound.correct();
+    host.revealAt = 0;
     host.skipReveal();
+  } else {
+    Sound.wrong();
+    shake(inp);
+    inp.select();
+    toast('Todavía no: fíjate bien en la respuesta');
   }
+}
+$('revealBox').onclick = e => {
+  const say = e.target.closest('[data-say]');
+  if (say) return Teach.speak(say.dataset.text, say.dataset.say);
+  if (e.target.closest('[data-retype]')) return checkRetype();
+  if (e.target.closest('[data-next]') && host) host.skipReveal();
+};
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || e.repeat || !host || !S || S.mode !== 'solo' || S.phase !== 'reveal') return;
+  e.preventDefault();
+  if (document.getElementById('retypeInput')) checkRetype(); // hay que escribirla bien para seguir
+  else host.skipReveal();
 });
 $('endGameBtn').onclick = () => {
   if (!host || !S) return;
@@ -693,6 +722,13 @@ $('examList').addEventListener('click', e => {
   Exam.setMany(WORDS.filter(w => w.cat === cat).map(wordKeyOf), !!all);
   renderExam();
 });
+$('examShare').onclick = shareExam;
+$('examLinkBox').onclick = e => e.target.select();
+$('examImportBtn').onclick = () => { showExamImport(); $('examImportInput').focus(); };
+$('examImportInput').oninput = readExamImport;
+$('examImportReplace').onclick = () => applyExamImport(true);
+$('examImportAdd').onclick = () => applyExamImport(false);
+$('examImportCancel').onclick = () => { examImport = null; $('examImportBox').classList.add('hidden'); };
 $('examPractice').onclick = () => {
   closeExam();
   soloSettings.exam = true;
@@ -749,6 +785,14 @@ window.addEventListener('pagehide', () => {
   if (host) host.close();
   else if (net) net.send({ t: 'bye' });
 });
+
+// lista del examen compartida por enlace: ?examen=CODIGO
+const sharedExam = new URLSearchParams(location.search).get('examen');
+if (sharedExam) {
+  openExam();
+  showExamImport(sharedExam, true);
+  setUrl(location.pathname + (new URLSearchParams(location.search).get('sala') ? '?sala=' + new URLSearchParams(location.search).get('sala') : ''));
+}
 
 // invitación por enlace: ?sala=CODIGO
 const invite = (new URLSearchParams(location.search).get('sala') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);

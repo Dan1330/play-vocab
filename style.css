@@ -361,6 +361,13 @@ input::placeholder { color: #a79fc4; }
 .exam-chip.on small { background: #ffe8b3; color: #9a5b00; }
 .exam-on .checks, .exam-on .check-all { opacity: .35; pointer-events: none; filter: grayscale(.6); }
 .exam-search { display: flex; gap: 8px; }
+.exam-share { display: flex; gap: 8px; flex-wrap: wrap; }
+input.exam-link { font-size: .85rem; padding: 8px 12px; color: var(--muted); background: var(--soft); }
+.exam-import {
+  display: grid; gap: 8px; padding: 12px; border-radius: 16px;
+  background: linear-gradient(135deg, #eef6ff, #f3efff); border: 2px dashed #b9c8ff;
+}
+.exam-import .msg { margin: 0; }
 .exam-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .exam-list { display: grid; gap: 12px; max-height: 52vh; overflow-y: auto; padding-right: 4px; }
 .exam-group { display: grid; gap: 6px; }

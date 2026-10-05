@@ -92,8 +92,8 @@ function onPhaseChange(phase) {
     endShownAt = Date.now();
     if (S.mode === 'solo') {
       const p = S.players[0];
-      const total = (S.history || []).length;
-      soloRecord = Stats.finishPractice(soloRun.retry ? null : soloRun.key, total ? Math.round((p.correct / total) * 100) : 0, total, p.best);
+      const sum = soloSummary(); // récord: las acertadas a la primera
+      soloRecord = Stats.finishPractice(soloRun.retry ? null : soloRun.key, sum.pct, sum.total, p.best);
       if (soloPct() >= 0.8 || soloRecord.pct || soloRecord.streak) { Sound.win(); confetti(); }
     } else {
       // ceremonia: redoble de tambor y, al salir el primero, fanfarria y confeti
@@ -211,6 +211,8 @@ function renderGame() {
   if (!revealing || !S.reveal) { box.classList.add('hidden'); return; }
   setHTML(box, mode === 'party' ? partyRevealHTML() : mode === 'solo' ? soloRevealHTML() : duelRevealHTML());
   box.classList.remove('hidden');
+  const retype = document.getElementById('retypeInput'); // modo aprender: listo para escribirla bien
+  if (retype && !retype.dataset.focused) { retype.dataset.focused = '1'; setTimeout(() => retype.focus({ preventScroll: true }), 80); }
 }
 
 function scoreHTML(p, unit = '') {

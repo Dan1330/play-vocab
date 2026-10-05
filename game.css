@@ -265,6 +265,32 @@
 @keyframes crownDrop { from { opacity: 0; transform: translateX(-50%) translateY(-70px) rotate(-30deg); } to { opacity: 1; transform: translateX(-50%); } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
+/* Práctica: aprender de los fallos */
+.learn-tools { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 10px 0 4px; }
+.learn-tools .btn-mini { text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+.tips {
+  text-align: left; margin: 12px 0 6px; padding: 11px 14px; border-radius: 16px;
+  background: linear-gradient(135deg, #fff8e6, #fff1f6); border: 2px solid #ffe2a8;
+}
+.tips > b { display: block; margin-bottom: 4px; }
+.tips ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.tips li { line-height: 1.45; }
+.retype {
+  margin-top: 12px; padding: 12px; border-radius: 16px; display: grid; gap: 8px;
+  background: linear-gradient(135deg, #eef6ff, #f3efff); border: 2px dashed #b9c8ff;
+}
+.retype label { font-weight: 700; }
+.retype .btn-link { margin: 0 auto; }
+.learn-sum { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 10px; }
+.ls { border-radius: 99px; padding: 4px 12px; font-weight: 700; font-size: .92rem; }
+.ls.ok { background: #e9fbf2; color: var(--ok-d); }
+.ls.learn { background: #f3efff; color: var(--violet-d); }
+.ls.todo { background: #fff0f1; color: var(--bad-d); }
+.ls.master { background: #eafaf0; color: #157a3c; }
+.fail.learned { background: #f3efff; border-color: #ddd0ff; }
+.tag-learned { font-size: .75rem; font-weight: 700; color: var(--violet-d); background: #e6dcff; border-radius: 99px; padding: 1px 8px; margin-left: 6px; }
+.wlevel { float: right; font-size: .9rem; margin-left: 4px; }
+
 /* Práctica: final */
 .solo-score { margin: 18px 0; }
 .solo-score .big {

@@ -48,6 +48,26 @@ function withOptions(card) {
   return { ...card, options, correct: options.indexOf(card.answer) };
 }
 
+// Corrige también varias respuestas a la vez ("calm/serene", "tranquilo/a", "calm or serene"):
+// vale si TODAS son correctas (así no se puede adivinar poniendo muchas)
+function checkMulti(text, accepted) {
+  const whole = checkAnswer(text, accepted);
+  if (whole) return whole;
+  const s = String(text || '').trim();
+  // separa por "/", ",", ";", " o ", " or "… pero no rompe el "o/a" de masculino/femenino
+  const parts = s.split(/\s*\/\s*(?!as?\b)|\s*[,;]\s*|\s+(?:o|or|u)\s+/i).map(x => x.trim()).filter(Boolean);
+  if (parts.length < 1) return 0;
+  let worst = 1;
+  for (const part of parts) {
+    for (const form of expandForms([part])) { // "tranquilo/a" -> tranquilo y tranquila
+      const r = checkAnswer(form, accepted);
+      if (!r) return 0;
+      if (r === 2) worst = 2;
+    }
+  }
+  return worst;
+}
+
 // Clasificación: más puntos primero; si empatan, quien acertó más rápido
 const rankPlayers = players => [...players].sort((a, b) => b.score - a.score || a.time - b.time);
 
@@ -404,7 +424,7 @@ class HostGame {
     let okCount = 0;
     for (const p of this.players) {
       const text = this.answers[p.id] || '';
-      const ok = quiz ? (this.choices[p.id] === item.correct ? 1 : 0) : text ? checkAnswer(text, item.accepted) : 0;
+      const ok = quiz ? (this.choices[p.id] === item.correct ? 1 : 0) : text ? checkMulti(text, item.accepted) : 0;
       const ms = p.id in this.answerMs ? this.answerMs[p.id] : null;
       if (ok) {
         p.streak++;
@@ -427,18 +447,30 @@ class HostGame {
     const entry = { prompt: item.prompt, from: item.from, answer: item.answer };
     if (this.mode === 'party') { entry.ok = okCount; entry.n = this.players.length; }
     else entry.results = results;
+    if (item.tries) entry.again = true; // repaso de una que habías fallado (modo aprender)
     this.history.push(entry);
     this.phase = 'reveal';
-    if (this.mode === 'solo') this.duration = results[this.meId].ok ? SOLO_OK_MS : SOLO_BAD_MS;
-    else this.duration = this.mode === 'party' ? PARTY_REVEAL_MS : REVEAL_MS;
-    this.endsAt = Date.now() + this.duration;
+    this.revealAt = Date.now();
+    let wait = this.mode === 'party' ? PARTY_REVEAL_MS : REVEAL_MS;
+    if (this.mode === 'solo') {
+      const ok = results[this.meId].ok;
+      wait = ok ? SOLO_OK_MS : SOLO_BAD_MS;
+      if (!ok && this.settings.learn) {
+        // modo aprender: la fallada vuelve a salir un poco después (hasta 2 veces más)…
+        const tries = (item.tries || 0) + 1;
+        if (tries <= 2) this.deck.splice(Math.min(this.deck.length, this.round + 2), 0, { ...item, tries });
+        wait = 0; // …y no se pasa sola: hay que escribirla bien (o saltarla)
+      }
+    }
+    this.duration = wait;
+    this.endsAt = wait ? Date.now() + wait : Infinity;
     this.broadcast();
   }
 
   // Práctica: Enter pasa a la siguiente palabra sin esperar
   skipReveal() {
     if (this.mode !== 'solo' || this.phase !== 'reveal') return;
-    if (Date.now() < this.endsAt - this.duration + 400) return; // evita saltársela sin querer
+    if (Date.now() - this.revealAt < 400) return; // evita saltársela sin querer
     this.endsAt = 0;
     this.tick();
   }
