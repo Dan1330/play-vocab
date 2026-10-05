@@ -37,13 +37,25 @@ const Net = (() => {
       onMessage(msg);
     }
 
+    const outbox = []; // mensajes enviados antes de estar conectados: salen al conectar
+
+    function push(data) {
+      for (const c of clients) if (c.connected) c.publish(outTopic, data);
+      for (const c of conns) if (c.open) { try { c.send(data); } catch (e) {} }
+    }
+
+    function flush() {
+      while (outbox.length) push(outbox.shift());
+    }
+
     function send(msg) {
       if (closed) return;
       msg.from = myId;
       msg.mid = `${myId}:${nonce}:${++seq}`;
       const data = JSON.stringify(msg);
-      for (const c of clients) if (c.connected) c.publish(outTopic, data);
-      for (const c of conns) if (c.open) { try { c.send(data); } catch (e) {} }
+      if (clients.some(c => c.connected) || [...conns].some(c => c.open)) return push(data);
+      outbox.push(data);
+      if (outbox.length > 30) outbox.shift();
     }
 
     // --- MQTT ---
@@ -54,7 +66,7 @@ const Net = (() => {
             clientId: `vd_${myId}_${i}_${Math.random().toString(36).slice(2, 7)}`,
             connectTimeout: 8000, reconnectPeriod: 4000, keepalive: 20, clean: true,
           });
-          c.on('connect', () => { c.subscribe(inTopic); status(); });
+          c.on('connect', () => { c.subscribe(inTopic, () => flush()); status(); });
           c.on('message', (topic, payload) => deliver(payload));
           c.on('close', status);
           c.on('offline', status);
@@ -66,9 +78,9 @@ const Net = (() => {
 
     // --- PeerJS (WebRTC) ---
     function addConn(conn) {
-      conn.on('open', () => { conns.add(conn); status(); });
+      conn.on('open', () => { conns.add(conn); flush(); status(); });
       conn.on('data', deliver);
-      conn.on('close', () => { conns.delete(conn); status(); });
+      conn.on('close', () => { conns.delete(conn); if (!isHost) connTries = 0; status(); }); // reintenta (p. ej. si cambia el anfitrión)
       conn.on('error', () => { conns.delete(conn); status(); });
     }
 
@@ -115,5 +127,5 @@ const Net = (() => {
     return { send, destroy };
   }
 
-  return { create };
+  return { create, BROKERS, PREFIX };
 })();
