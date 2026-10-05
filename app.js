@@ -34,7 +34,7 @@ let soloRun = { key: '', name: '', retry: false }; // qué temas se están pract
 
 // Ajustes de la práctica: temas marcados, "solo mis difíciles", tiempo e idioma
 const soloSettings = (() => {
-  const s = { sets: [...ALL_SETS], hard: false, time: 0, dir: 'mix', answer: 'type' };
+  const s = { sets: [...ALL_SETS], hard: false, time: 0, dir: 'mix', answer: 'type', exam: Exam.on };
   try {
     const saved = JSON.parse(local.get('vd_solo') || '{}');
     if (validSets(saved.sets).length) s.sets = validSets(saved.sets);
@@ -49,8 +49,22 @@ const soloSettings = (() => {
 const saveSolo = () => local.set('vd_solo', JSON.stringify(soloSettings));
 
 function setsName(st) {
-  const names = st.sets.length === ALL_SETS.length ? 'todos los temas' : st.sets.map(k => VOCAB[k].name).join(' + ');
+  const names = st.exam ? 'las palabras del examen' : st.sets.length === ALL_SETS.length ? 'todos los temas' : st.sets.map(k => VOCAB[k].name).join(' + ');
   return st.hard ? `en tus difíciles (${names})` : `en ${names}`;
+}
+
+// Ajustes con los que se juega la práctica (la lista del examen, en el momento de empezar)
+const soloPlaySettings = () => ({ ...soloSettings, exam: soloSettings.exam && Exam.count ? Exam.keys() : null });
+// Ajustes de una sala nueva: si tienes palabras del examen activadas, se empieza con ellas
+const roomSettings = () => ({ sets: [...ALL_SETS], time: 20, dir: 'mix', answer: 'type', exam: Exam.on ? Exam.keys() : null });
+
+// Cambió la lista del examen o si se usa: lo aplica a la práctica y a tu sala
+function examChanged() {
+  soloSettings.exam = Exam.on;
+  saveSolo();
+  if (role === 'host' && host && S && S.phase === 'lobby' && S.mode !== 'solo') host.setSettings({ exam: Exam.on ? Exam.keys() : null });
+  paintSolo();
+  renderExam();
 }
 
 // ---------- Perfil ----------
@@ -122,6 +136,10 @@ $('settings').querySelector('[data-key="sets"]').innerHTML = ALL_SETS.map(k => `
   <input type="checkbox" value="${esc(k)}"><span class="cbox"></span>
   <span class="ctext">${esc(VOCAB[k].name)} <small>${countWords(k)}</small></span></label>`).join('')
   + (ALL_SETS.length > 1 ? '<button type="button" class="check-all">✓ Todos</button>' : '');
+$('settings').querySelector('[data-key="sets"]').insertAdjacentHTML('afterend', `<div class="exam-row">
+  <label class="check-chip exam-chip"><input type="checkbox" value="exam"><span class="cbox"></span>
+  <span class="ctext">📝 Solo las del examen <small></small></span></label>
+  <button type="button" class="btn-mini exam-edit">Elegir palabras…</button></div>`);
 
 function cloneSettings(id, slotId) {
   const box = $('settings').cloneNode(true);
@@ -153,13 +171,26 @@ function watchChecks(box, apply) {
     const inp = e.target.closest('input[type="checkbox"]');
     if (!inp) return;
     if (inp.value === 'hard') return apply({ hard: inp.checked });
+    if (inp.value === 'exam') {
+      if (inp.checked && !Exam.count) { inp.checked = false; toast('Primero elige las palabras del examen'); return openExam(); }
+      Exam.on = inp.checked;
+      return apply({ exam: inp.checked });
+    }
     const sets = [...box.querySelectorAll('.checks input:checked')].map(i => i.value);
     if (!sets.length) { inp.checked = true; return toast('Marca al menos un tema'); }
     apply({ sets });
   });
-  box.addEventListener('click', e => { if (e.target.closest('.check-all')) apply({ sets: [...ALL_SETS] }); });
+  box.addEventListener('click', e => {
+    if (e.target.closest('.check-all')) apply({ sets: [...ALL_SETS] });
+    if (e.target.closest('.exam-edit')) openExam();
+  });
 }
-const hostPatch = patch => { if (role === 'host' && host) host.setSettings(patch); };
+// En la sala, "exam" viaja como la lista de palabras del anfitrión
+const hostPatch = patch => {
+  if (!(role === 'host' && host)) return;
+  if ('exam' in patch) patch.exam = patch.exam ? Exam.keys() : null;
+  host.setSettings(patch);
+};
 watchChecks($('settings'), hostPatch);
 watchChecks($('pSettings'), hostPatch);
 watchChecks(sBox, patch => { Object.assign(soloSettings, patch); saveSolo(); paintSolo(); });
@@ -193,7 +224,7 @@ function createRoom(mode, code = null) {
   role = 'host';
   roomCode = code || newCode();
   net = Net.create({ code: roomCode, role, myId: me.id, onMessage: m => host && host.handle(m), onStatus: showNet });
-  host = new HostGame(roomCode, me, msg => net.send(msg), applyState, mode);
+  host = new HostGame(roomCode, me, msg => net.send(msg), applyState, mode, roomSettings());
   host.onReact = hostReaction;
   host.broadcast();
 }
@@ -315,20 +346,21 @@ function stopSolo() {
 // Solo las palabras que más fallas, de los temas marcados
 function hardDeck() {
   const keys = new Set(Stats.hardKeys());
-  return deckFor(soloSettings).filter(d => keys.has(wordKey(d.from, d.prompt, d.answer)));
+  return deckFor(soloPlaySettings()).filter(d => keys.has(wordKey(d.from, d.prompt, d.answer)));
 }
 
 function startSolo(deck = null) {
   readProfile();
   Sound.unlock();
-  soloRun = { key: (soloSettings.hard ? 'hard:' : '') + [...soloSettings.sets].sort().join('+'), name: setsName(soloSettings), retry: !!deck };
+  const listKey = soloSettings.exam && Exam.count ? 'examen' : [...soloSettings.sets].sort().join('+');
+  soloRun = { key: (soloSettings.hard ? 'hard:' : '') + listKey, name: setsName({ ...soloSettings, exam: soloSettings.exam && Exam.count }), retry: !!deck };
   if (!deck && soloSettings.hard) {
     deck = hardDeck();
     if (!deck.length) return toast('No tienes palabras difíciles en esos temas. ¡Juega un poco primero!');
   }
   stopSolo();
   role = 'solo';
-  host = new HostGame('', me, () => {}, applyState, 'solo', soloSettings);
+  host = new HostGame('', me, () => {}, applyState, 'solo', soloPlaySettings());
   host.start(deck);
   if (!S) { stopSolo(); showSoloSetup(); toast('No hay palabras en esa lista'); }
 }
@@ -336,7 +368,7 @@ function startSolo(deck = null) {
 const wordKey = (from, prompt, answer) => (from === 'en' ? prompt + '|' + answer : answer + '|' + prompt);
 function failedDeck() {
   const fails = new Set((S.history || []).filter(h => !(h.results[me.id] || {}).ok).map(h => wordKey(h.from, h.prompt, h.answer)));
-  return deckFor({ ...soloSettings, sets: [...ALL_SETS] }).filter(d => fails.has(wordKey(d.from, d.prompt, d.answer)));
+  return deckFor({ ...soloSettings, exam: null, sets: [...ALL_SETS] }).filter(d => fails.has(wordKey(d.from, d.prompt, d.answer)));
 }
 
 // ---------- Unirse a una sala ----------
@@ -608,7 +640,69 @@ document.addEventListener('keydown', e => {
   $('qrModal').classList.add('hidden');
   $('duelModal').classList.add('hidden');
   if (Matchmaker.searching) cancelSearch();
+  closeExam();
 });
+
+// Palabras del examen
+document.querySelectorAll('.exam-open').forEach(b => { b.onclick = openExam; });
+$('examClose').onclick = closeExam;
+$('examDone').onclick = closeExam;
+$('examModal').onclick = e => { if (e.target === $('examModal')) closeExam(); };
+const examMatches = () => {
+  const q = stripAccents(norm(examQuery));
+  return q ? WORDS.filter(w => [...w.en.forms, ...w.es.forms].some(f => stripAccents(f).includes(q))) : [];
+};
+function refreshExamSearch() {
+  const found = examMatches();
+  $('examAddFound').classList.toggle('hidden', !found.length);
+  $('examAddFound').textContent = `✓ Marcar las encontradas (${found.length})`;
+  renderExam();
+}
+$('examSearch').oninput = e => { examQuery = e.target.value; refreshExamSearch(); };
+$('examSearch').onkeydown = e => { // Enter: marca la primera que coincida y deja el buscador listo para la siguiente
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const found = examMatches();
+  const w = found.find(x => !Exam.has(wordKeyOf(x))) || found[0];
+  if (!w) return toast('No hay ninguna palabra así');
+  Exam.set(wordKeyOf(w), true);
+  toast(`✓ ${w.en.label} — ${w.es.label}`);
+  examQuery = '';
+  e.target.value = '';
+  refreshExamSearch();
+};
+$('examAddFound').onclick = () => {
+  const found = examMatches();
+  Exam.setMany(found.map(wordKeyOf), true);
+  toast(`✓ ${plural(found.length, 'palabra marcada', 'palabras marcadas')}`);
+  examQuery = '';
+  $('examSearch').value = '';
+  refreshExamSearch();
+};
+$('examClear').onclick = () => {
+  if (Exam.count && confirm('¿Quitar todas las palabras del examen?')) { Exam.setMany(Exam.keys(), false); renderExam(); }
+};
+$('examList').addEventListener('change', e => {
+  const inp = e.target.closest('input[data-key]');
+  if (inp) { Exam.set(inp.dataset.key, inp.checked); renderExam(); }
+});
+$('examList').addEventListener('click', e => {
+  const all = e.target.closest('[data-all]'), none = e.target.closest('[data-none]');
+  if (!all && !none) return;
+  const cat = (all || none).dataset[all ? 'all' : 'none'];
+  Exam.setMany(WORDS.filter(w => w.cat === cat).map(wordKeyOf), !!all);
+  renderExam();
+});
+$('examPractice').onclick = () => {
+  closeExam();
+  soloSettings.exam = true;
+  soloSettings.hard = false;
+  saveSolo();
+  stopSolo();
+  readProfile();
+  showSoloSetup();
+};
+renderExam();
 
 // Lista de palabras
 $('homeWordsBtn').textContent = `📖 Ver todas las palabras (${WORDS.length})`;

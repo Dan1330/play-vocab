@@ -10,11 +10,21 @@ function paintSettings(box, settings, editable) {
     }
   }
   const sets = settings.sets || [];
+  // en la sala "exam" es la lista del anfitrión; en la práctica, sí/no (y se usa tu lista)
+  const examN = Array.isArray(settings.exam) ? settings.exam.length : settings.exam ? Exam.count : 0;
   for (const inp of box.querySelectorAll('input[type="checkbox"]')) {
-    inp.checked = inp.value === 'hard' ? !!settings.hard : sets.includes(inp.value);
+    if (inp.value === 'hard') inp.checked = !!settings.hard;
+    else if (inp.value === 'exam') inp.checked = examN > 0;
+    else inp.checked = sets.includes(inp.value);
     inp.disabled = !editable;
     inp.closest('.check-chip').classList.toggle('on', inp.checked);
   }
+  const examChip = box.querySelector('.exam-chip');
+  if (examChip) {
+    examChip.querySelector('small').textContent = examN || Exam.count;
+    box.querySelector('.exam-edit').classList.toggle('hidden', !editable);
+  }
+  box.classList.toggle('exam-on', examN > 0);
   for (const b of box.querySelectorAll('.check-all')) {
     b.disabled = !editable;
     b.classList.toggle('hidden', sets.length === ALL_SETS.length);
@@ -45,7 +55,7 @@ function renderPartyLobby() {
   </div>`).join(''));
   paintSettings($('pSettings'), S.settings, isHost);
   $('pStartBtn').classList.toggle('hidden', !isHost);
-  const n = countSets(S.settings.sets || []);
+  const n = settingsCount(S.settings);
   $('pLobbyMsg').textContent = !isHost ? 'Esperando a que el anfitrión empiece la partida…'
     : S.players.length > 1 ? `${S.players.length} jugadores · ${n} palabras · ¡Cuando quieras!`
       : 'Comparte el código o el enlace. Podéis jugar de 1 a 40 personas.';

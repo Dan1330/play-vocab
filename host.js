@@ -23,9 +23,13 @@ const cleanAvatar = a => (AVATARS.includes(a) ? a : AVATARS[0]);
 const ALL_SETS = Object.keys(VOCAB);
 const validSets = sets => (Array.isArray(sets) ? sets : []).filter(k => ALL_SETS.includes(k));
 const countSets = sets => WORDS.filter(w => sets.includes(w.cat)).length;
+const cardKey = c => (c.from === 'en' ? c.prompt + '|' + c.answer : c.answer + '|' + c.prompt);
+const settingsCount = st => (Array.isArray(st.exam) && st.exam.length ? st.exam.length : countSets(st.sets || []));
+// Con "Solo las del examen" se juega exactamente con esas palabras (da igual el tema)
 const deckFor = settings => {
   const sets = validSets(settings.sets);
-  const cards = buildDeck({ ...settings, set: 'all' }).filter(c => sets.includes(c.cat));
+  const exam = Array.isArray(settings.exam) && settings.exam.length ? new Set(settings.exam) : null;
+  const cards = buildDeck({ ...settings, set: 'all' }).filter(c => (exam ? exam.has(cardKey(c)) : sets.includes(c.cat)));
   return settings.answer === 'quiz' ? cards.map(withOptions) : cards;
 };
 
@@ -493,6 +497,10 @@ class HostGame {
     if ('sets' in patch) {
       patch.sets = validSets(patch.sets);
       if (!patch.sets.length) return; // siempre al menos un tema
+    }
+    if ('exam' in patch && patch.exam !== null) {
+      patch.exam = (Array.isArray(patch.exam) ? patch.exam : []).filter(k => typeof k === 'string').slice(0, 1000);
+      if (!patch.exam.length) patch.exam = null;
     }
     Object.assign(this.settings, patch);
     this.broadcast();

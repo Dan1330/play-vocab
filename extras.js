@@ -34,6 +34,70 @@ const Stats = (() => {
 
 const wordKeyOf = w => w.en.label + '|' + w.es.label;
 
+// ---------- Palabras del examen (elegidas una a una, guardadas en este dispositivo) ----------
+const Exam = (() => {
+  let keys = new Set(), on = false;
+  try {
+    keys = new Set(JSON.parse(localStorage.getItem('vd_exam') || '[]'));
+    on = localStorage.getItem('vd_exam_on') === '1';
+  } catch (e) {}
+  const valid = new Set(WORDS.map(wordKeyOf));
+  keys = new Set([...keys].filter(k => valid.has(k))); // por si cambiaste alguna palabra en words.js
+  const save = () => {
+    try {
+      localStorage.setItem('vd_exam', JSON.stringify([...keys]));
+      localStorage.setItem('vd_exam_on', on ? '1' : '0');
+    } catch (e) {}
+  };
+  return {
+    keys: () => [...keys],
+    has: k => keys.has(k),
+    get count() { return keys.size; },
+    set(k, yes) { if (yes) keys.add(k); else keys.delete(k); save(); },
+    setMany(list, yes) { list.forEach(k => (yes ? keys.add(k) : keys.delete(k))); save(); },
+    get on() { return on && keys.size > 0; }, // usar solo estas palabras al jugar
+    set on(v) { on = !!v; save(); },
+  };
+})();
+let examQuery = '';
+
+function renderExam() {
+  const q = stripAccents(norm(examQuery));
+  $('examTotal').textContent = Exam.count ? `${plural(Exam.count, 'palabra seleccionada', 'palabras seleccionadas')}` : 'Aún no has seleccionado ninguna';
+  setHTML($('examList'), ALL_SETS.map(cat => {
+    const words = WORDS.filter(w => w.cat === cat);
+    const picked = words.filter(w => Exam.has(wordKeyOf(w))).length;
+    const shown = words.filter(w => !q || [...w.en.forms, ...w.es.forms].some(f => stripAccents(f).includes(q)));
+    if (!shown.length) return '';
+    return `<div class="exam-group">
+      <div class="exam-head"><b>${esc(VOCAB[cat].name)}</b><span class="pill">${picked} de ${words.length}</span>
+        <button type="button" class="btn-mini" data-all="${esc(cat)}">✓ Todas</button>
+        <button type="button" class="btn-mini" data-none="${esc(cat)}">✕ Ninguna</button></div>
+      ${shown.map(w => {
+        const k = wordKeyOf(w);
+        const on = Exam.has(k);
+        return `<label class="exam-word${on ? ' on' : ''}"><input type="checkbox" data-key="${esc(k)}"${on ? ' checked' : ''}>
+          <span class="cbox"></span><span class="ew-en">${esc(w.en.label)}</span><span class="ew-es">${esc(w.es.label)}</span></label>`;
+      }).join('')}</div>`;
+  }).join('') || '<p class="msg">No hay ninguna palabra con esa búsqueda.</p>');
+  $('examPractice').classList.toggle('hidden', !Exam.count || role === 'host' || role === 'guest');
+  $('homeExamBtn').textContent = Exam.count ? `📝 Palabras del examen (${Exam.count})` : '📝 Palabras del examen';
+}
+
+function openExam() {
+  if (S && ['countdown', 'question', 'reveal'].includes(S.phase)) return;
+  renderExam();
+  $('examModal').classList.remove('hidden');
+}
+
+// Al cerrar: si hay palabras elegidas, se activa "Solo las del examen" en todos los modos
+function closeExam() {
+  if ($('examModal').classList.contains('hidden')) return;
+  $('examModal').classList.add('hidden');
+  Exam.on = Exam.count > 0;
+  examChanged();
+}
+
 // ---------- "¡Casi!": qué letras sobran y cuáles faltan ----------
 function levenshtein(a, b) {
   const row = Array.from({ length: b.length + 1 }, (_, j) => j);

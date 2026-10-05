@@ -149,7 +149,7 @@ function renderLobby() {
   const ready = S.players.length === 2;
   $('startBtn').classList.toggle('hidden', !isHost);
   $('startBtn').disabled = !ready;
-  const n = countSets(S.settings.sets || []);
+  const n = settingsCount(S.settings);
   $('lobbyMsg').textContent = !isHost ? 'Esperando a que el anfitrión empiece la partida…'
     : ready ? `${n} palabras · ¡Cuando quieras!` : 'Esperando a que entre tu rival…';
 }

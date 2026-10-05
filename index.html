@@ -51,7 +51,10 @@
             <span class="m-ico">🎉</span><span class="m-title">Multijugador</span><span class="m-sub">De 1 a 40 personas</span>
           </button>
         </div>
-        <button id="homeWordsBtn" class="btn btn-ghost btn-block words-open home-words" type="button">📖 Ver todas las palabras</button>
+        <div class="home-links">
+          <button id="homeWordsBtn" class="btn btn-ghost words-open" type="button">📖 Ver todas las palabras</button>
+          <button id="homeExamBtn" class="btn btn-ghost exam-open" type="button">📝 Palabras del examen</button>
+        </div>
         <div class="divider"><span>o únete a una sala con un código</span></div>
         <form id="joinForm" class="join-row">
           <input id="codeInput" maxlength="5" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false">
@@ -254,6 +257,31 @@
       <div id="wordsCount" class="words-count"></div>
       <div id="wordsList" class="words-list"></div>
       <button id="wordsPractice" class="btn btn-primary btn-block" type="button">🎯 Practicar esta lista</button>
+    </div>
+  </div>
+
+  <!-- PALABRAS DEL EXAMEN -->
+  <div id="examModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Palabras del examen">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>📝 Palabras del examen</h2>
+        <button id="examClose" class="close-btn" type="button" title="Cerrar">✕</button>
+      </div>
+      <p class="music-note">Marca las palabras que caen en el examen. Al terminar, todos los modos usarán solo estas palabras
+        (en los ajustes puedes quitar «Solo las del examen»).</p>
+      <div class="exam-search">
+        <input id="examSearch" placeholder="🔍 Escribe una palabra y pulsa Enter para marcarla" autocomplete="off" spellcheck="false">
+        <button id="examAddFound" class="btn btn-small btn-secondary hidden" type="button">✓ Marcar las encontradas</button>
+      </div>
+      <div class="exam-bar">
+        <span id="examTotal" class="words-count"></span>
+        <button id="examClear" class="btn-mini" type="button">Quitar todas</button>
+      </div>
+      <div id="examList" class="exam-list"></div>
+      <div class="row">
+        <button id="examPractice" class="btn btn-secondary" type="button">🎯 Practicar estas palabras</button>
+        <button id="examDone" class="btn btn-primary" type="button">✓ Listo</button>
+      </div>
     </div>
   </div>
 
