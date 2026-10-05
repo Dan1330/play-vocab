@@ -1,9 +1,11 @@
 // Pinta las pantallas a partir del estado (S) que manda el anfitrión, más sonidos y efectos.
+// Las pantallas propias de práctica y multijugador están en modes.js.
 const LANG = { en: '<span class="lang en">EN</span>', es: '<span class="lang es">ES</span>' };
 const LANG_NAME = { en: 'inglés', es: 'español' };
 const otherLang = l => (l === 'en' ? 'es' : 'en');
 
-let lastPhase = null, lastRound = -1, lastScores = {}, lastPlayers = '', reviewKey = '', lastTickSec = 0;
+let lastPhase = null, lastRound = -1, lastScores = {}, lastPlayers = {}, reviewKey = '', lastTickSec = 0;
+let myLog = []; // mis resultados por ronda (para el repaso del multijugador)
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -29,40 +31,53 @@ function toast(text) {
 function render() {
   if (!S) return;
   const phase = S.phase;
+  const mode = S.mode || 'duel';
   if (phase !== lastPhase) onPhaseChange(phase);
   $('countdown').classList.toggle('hidden', phase !== 'countdown');
-  if (phase === 'lobby') { showScreen('lobby'); renderLobby(); }
-  else if (phase === 'end') { showScreen('end'); renderEnd(); }
-  else { showScreen('game'); renderGame(); }
+  if (phase === 'lobby') {
+    if (mode === 'party') { showScreen('party-lobby'); renderPartyLobby(); }
+    else { showScreen('lobby'); renderLobby(); }
+  } else if (phase === 'end') {
+    if (mode === 'party') { showScreen('party-end'); renderPartyEnd(); }
+    else if (mode === 'solo') { showScreen('solo-end'); renderSoloEnd(); }
+    else { showScreen('end'); renderEnd(); }
+  } else {
+    showScreen('game');
+    renderGame();
+  }
   notifyPlayers();
   lastPhase = phase;
 }
 
 function onPhaseChange(phase) {
-  if (phase === 'countdown') { lastRound = -1; lastScores = {}; }
+  if (phase === 'countdown') { lastRound = -1; lastScores = {}; myLog = []; }
   if (phase === 'reveal' && S.reveal) {
     const r = S.reveal.results[me.id];
+    if (r) myLog[S.round] = r;
     if (r && r.ok) Sound.correct();
-    else { Sound.wrong(); shake(document.querySelector('.question')); }
+    else if (r) { Sound.wrong(); shake(document.querySelector('.question')); }
   }
   if (phase === 'end' && lastPhase) {
     reviewKey = '';
-    if (S.winner === me.id) { Sound.win(); confetti(); }
+    if (S.mode === 'solo') { if (soloPct() >= 0.8) { Sound.win(); confetti(); } }
+    else if (S.winner === me.id) { Sound.win(); confetti(); }
     else if (S.winner) Sound.lose();
   }
 }
 
 function notifyPlayers() {
-  const ids = S.players.map(p => p.id).join(',');
-  if (lastPlayers && ids !== lastPlayers) {
-    const before = lastPlayers.split(',');
-    const joinedP = S.players.find(p => !before.includes(p.id));
-    if (joinedP && joinedP.id !== me.id) { toast(`${joinedP.avatar} ${joinedP.name} se ha unido`); Sound.join(); }
-    else if (S.players.length < before.length) toast('Tu rival ha salido de la sala');
+  const now = Object.fromEntries(S.players.map(p => [p.id, p.name]));
+  if (Object.keys(lastPlayers).length) {
+    for (const p of S.players) {
+      if (!(p.id in lastPlayers) && p.id !== me.id) { toast(`${p.avatar} ${p.name} se ha unido`); Sound.join(); }
+    }
+    const gone = Object.keys(lastPlayers).filter(id => !(id in now));
+    if (gone.length) toast(S.mode === 'party' ? `${lastPlayers[gone[0]]} ha salido de la sala` : 'Tu rival ha salido de la sala');
   }
-  lastPlayers = ids;
+  lastPlayers = now;
 }
 
+// ---------- 1 vs 1: sala ----------
 function slotHTML(p) {
   const tags = [];
   if (p.id === S.hostId) tags.push('<span class="tag">Anfitrión</span>');
@@ -93,22 +108,14 @@ function renderLobby() {
     : ready ? `${n} palabras · ¡Cuando quieras!` : 'Esperando a que entre tu rival…';
 }
 
+// ---------- Partida (todos los modos) ----------
 function renderGame() {
+  const mode = S.mode || 'duel';
+  if (mode === 'party') renderPartyBoard();
+  else if (mode === 'solo') renderSoloBoard();
+  else renderDuelBoard();
+
   const q = S.q;
-  const rival = S.players.find(p => p.id !== me.id);
-
-  $('scoreboard').innerHTML = S.players.map(p => {
-    let state = p.online ? '' : '🔌 Desconectado';
-    if (S.phase === 'question' && p.online) state = S.answered[p.id] ? '✅ Respondido' : '✍️ Pensando…';
-    if (S.phase === 'reveal' && S.reveal) state = (S.reveal.results[p.id] || {}).ok ? '✅ ¡Acierto!' : '❌ Fallo';
-    const bump = lastScores[p.id] !== undefined && p.score > lastScores[p.id] ? ' bump' : '';
-    lastScores[p.id] = p.score;
-    return `<div class="sb-player${p.id === me.id ? ' me' : ''}">${avatarHTML(p)}
-      <div class="sb-info"><div class="sb-name">${esc(p.name)}${p.id === me.id ? ' (tú)' : ''}</div>
-      <div class="sb-state${S.answered[p.id] ? ' done' : ''}">${state}</div></div>
-      <div class="sb-score${bump}">${p.score}</div></div>`;
-  }).join('');
-
   $('roundText').textContent = S.total ? `Palabra ${Math.max(S.round, 1)} / ${S.total}` : '';
   if (q) {
     const to = otherLang(q.from);
@@ -124,40 +131,84 @@ function renderGame() {
     lastRound = S.round;
     lastTickSec = 0;
     pending = null;
+    editing = 0;
+    actN = 0;
     input.value = '';
     setTimeout(() => input.focus({ preventScroll: true }), 60);
   }
-  const canAnswer = S.phase === 'question' && !S.answered[me.id] && !(pending && pending.round === S.round);
+  const sent = pending && pending.round === S.round;
+  const isEditing = S.phase === 'question' && editing === S.round;
+  const canAnswer = S.phase === 'question' && (isEditing || (!S.answered[me.id] && !sent));
   const revealing = S.phase === 'reveal';
   $('answerForm').classList.toggle('hidden', revealing);
   $('skipBtn').classList.toggle('hidden', revealing);
   input.disabled = !canAnswer;
   $('sendBtn').disabled = !canAnswer;
   $('skipBtn').disabled = !canAnswer;
+  $('editBtn').classList.toggle('hidden', !(S.phase === 'question' && !canAnswer && mode !== 'solo'));
+  $('quitBtn').classList.toggle('hidden', mode === 'duel');
 
   let status = '';
-  if (S.phase === 'question' && !canAnswer) {
-    status = rival && rival.online && !S.answered[rival.id] ? `✅ Enviado. Esperando a ${esc(rival.name)}…` : '✅ Enviado';
-  }
+  if (S.phase === 'question' && !canAnswer) status = mode === 'party' ? partyStatus() : duelStatus();
+  else if (isEditing) status = '✏️ Editando… si se acaba el tiempo, cuenta tu respuesta anterior';
   $('answerStatus').innerHTML = status;
 
   const box = $('revealBox');
-  if (S.phase !== 'reveal' || !S.reveal) { box.classList.add('hidden'); return; }
-  const r = S.reveal;
-  const also = r.also.length ? `<div class="also">También vale: ${r.also.map(esc).join(' · ')}</div>` : '';
-  const results = S.players.map(p => {
-    const res = r.results[p.id] || { text: '', ok: 0 };
-    const note = res.ok === 2 ? '<small>Vale, pero ojo con las tildes</small>' : '';
-    const said = res.text ? `“${esc(res.text)}”` : '<i>sin respuesta</i>';
-    return `<div class="result${res.ok ? ' ok' : ''}">${avatarHTML(p, false)}
-      <div class="r-text"><b>${esc(p.name)}</b>: ${said}${note}</div>
-      <div class="r-points">${res.ok ? '+1 ✓' : '✗'}</div></div>`;
-  }).join('');
-  box.innerHTML = `<div class="sol-label">Respuesta correcta</div><div class="sol">${esc(r.answer)}</div>${also}
-    <div class="results">${results}</div><div class="next-bar"><div id="nextBar"></div></div>`;
+  if (!revealing || !S.reveal) { box.classList.add('hidden'); return; }
+  box.innerHTML = mode === 'party' ? partyRevealHTML() : mode === 'solo' ? soloRevealHTML() : duelRevealHTML();
   box.classList.remove('hidden');
 }
 
+function renderDuelBoard() {
+  $('scoreboard').innerHTML = S.players.map(p => {
+    let state = p.online ? '' : '🔌 Desconectado';
+    if (S.phase === 'question' && p.online) state = S.answered[p.id] ? '✅ Respondido' : '✍️ Pensando…';
+    if (S.phase === 'reveal' && S.reveal) state = (S.reveal.results[p.id] || {}).ok ? '✅ ¡Acierto!' : '❌ Fallo';
+    const bump = lastScores[p.id] !== undefined && p.score > lastScores[p.id] ? ' bump' : '';
+    lastScores[p.id] = p.score;
+    return `<div class="sb-player${p.id === me.id ? ' me' : ''}">${avatarHTML(p)}
+      <div class="sb-info"><div class="sb-name">${esc(p.name)}${p.id === me.id ? ' (tú)' : ''}</div>
+      <div class="sb-state${S.answered[p.id] ? ' done' : ''}">${state}</div></div>
+      <div class="sb-score${bump}">${p.score}</div></div>`;
+  }).join('');
+}
+
+function duelStatus() {
+  const rival = S.players.find(p => p.id !== me.id);
+  return rival && rival.online && !S.answered[rival.id] ? `✅ Enviado. Esperando a ${esc(rival.name)}…` : '✅ Enviado';
+}
+
+function ptsHTML(res) {
+  if (!res.ok) return '✗';
+  const pts = res.pts || 1;
+  return `+${pts} ${pts > 1 ? '⚡' : '✓'}`;
+}
+
+function resultNotes(res) {
+  const notes = [];
+  if (res.pts > 1) notes.push('⚡ ¡El más rápido! +2');
+  if (res.ok === 2) notes.push('Vale, pero ojo con las tildes');
+  return notes.length ? `<small>${notes.join(' · ')}</small>` : '';
+}
+
+function revealAlsoHTML(r) {
+  return r.also.length ? `<div class="also">También vale: ${r.also.map(esc).join(' · ')}</div>` : '';
+}
+
+function duelRevealHTML() {
+  const r = S.reveal;
+  const results = S.players.map(p => {
+    const res = r.results[p.id] || { text: '', ok: 0 };
+    const said = res.text ? `“${esc(res.text)}”` : '<i>sin respuesta</i>';
+    return `<div class="result${res.ok ? ' ok' : ''}">${avatarHTML(p, false)}
+      <div class="r-text"><b>${esc(p.name)}</b>: ${said}${resultNotes(res)}</div>
+      <div class="r-points">${ptsHTML(res)}</div></div>`;
+  }).join('');
+  return `<div class="sol-label">Respuesta correcta</div><div class="sol">${esc(r.answer)}</div>${revealAlsoHTML(r)}
+    <div class="results">${results}</div><div class="next-bar"><div id="nextBar"></div></div>`;
+}
+
+// ---------- 1 vs 1: final ----------
 function renderEnd() {
   const isHost = role === 'host';
   const rival = S.players.find(p => p.id !== me.id);
@@ -169,11 +220,12 @@ function renderEnd() {
   $('endTitle').textContent = winner ? (winner.id === me.id ? '¡Has ganado! 🎉' : `¡Gana ${winner.name}!`) : rival ? '¡Empate! 🤝' : 'Partida terminada';
   $('podium').innerHTML = S.players.map(p => {
     const win = p.id === S.winner;
-    const pct = total ? Math.round((p.score / total) * 100) : 0;
+    const correct = p.correct !== undefined ? p.correct : p.score;
+    const pct = total ? Math.round((correct / total) * 100) : 0;
     return `<div class="pod${win ? ' win' : ''}">${win ? '<span class="big-crown">👑</span>' : ''}${avatarHTML(p, false)}
       <div class="name">${esc(p.name)}${p.id === me.id ? ' (tú)' : ''}</div>
-      <div class="score">${p.score}</div>
-      <div class="detail">de ${total} palabras · ${pct}%</div>
+      <div class="score">${p.score}<small> pts</small></div>
+      <div class="detail">${correct} de ${total} acertadas · ${pct}%</div>
       ${p.wins ? `<div class="detail">🏆 ${p.wins} ${p.wins === 1 ? 'victoria' : 'victorias'}</div>` : ''}</div>`;
   }).join('');
 
@@ -208,6 +260,12 @@ function frame() {
   const frac = S.duration ? left / S.duration : 0;
   if (S.phase === 'question') {
     const bar = $('timerBar');
+    if (!S.duration) { // práctica sin límite de tiempo
+      bar.style.width = '100%';
+      bar.className = 'timer-bar';
+      $('timeLeft').textContent = '⏱ ∞';
+      return;
+    }
     bar.style.width = frac * 100 + '%';
     bar.className = 'timer-bar' + (frac < 0.25 ? ' danger' : frac < 0.5 ? ' warn' : '');
     const sec = Math.ceil(left / 1000);
