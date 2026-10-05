@@ -265,6 +265,105 @@ input:disabled { background: var(--soft); color: var(--muted); }
 .confetti i { position: absolute; top: -20px; width: 10px; height: 16px; border-radius: 3px; animation: fall linear forwards; }
 @keyframes fall { to { transform: translateY(110vh) rotate(720deg); } }
 
+/* Modos de juego (inicio) */
+.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.mode {
+  font: inherit; color: #fff; border: 0; border-radius: 18px; padding: 14px 8px 12px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 2px; transition: transform .08s, filter .15s;
+}
+.mode:active:not(:disabled) { transform: translateY(4px); }
+.mode:disabled { filter: grayscale(.8) opacity(.55); cursor: not-allowed; }
+.mode .m-ico { font-size: 1.9rem; line-height: 1.1; }
+.mode .m-title { font-weight: 700; font-size: 1.15rem; }
+.mode .m-sub { font-size: .85rem; opacity: .9; }
+.mode-solo { background: var(--ok); box-shadow: 0 5px 0 var(--ok-d); }
+.mode-duel { background: var(--primary); box-shadow: 0 5px 0 var(--primary-d); }
+.mode-party { background: #8b5cf6; box-shadow: 0 5px 0 #6431d6; }
+.avatar-grid { max-height: 232px; overflow-y: auto; }
+
+/* Sala multijugador */
+.room-box.party .room-code { color: #7c3aed; }
+.players-head { display: flex; justify-content: space-between; align-items: center; margin: 18px 0 8px; }
+.player-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; max-height: 300px; overflow-y: auto; padding-top: 18px; }
+.pchip {
+  display: flex; align-items: center; gap: 6px; border: 3px solid var(--line); border-radius: 99px;
+  padding: 4px 10px 4px 4px; background: #fff; max-width: 100%;
+}
+.pchip.me { border-color: var(--gold); }
+.pchip.off { opacity: .5; }
+.pchip .avatar { width: 38px; height: 38px; font-size: 22px; }
+.pchip .crown { top: -17px; font-size: 18px; }
+.pchip .pname { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+.kick {
+  border: 0; background: #ffe1e1; color: var(--bad-d); border-radius: 50%; width: 24px; height: 24px;
+  cursor: pointer; font-weight: 700; line-height: 1; padding: 0;
+}
+
+/* Barra superior de la partida en multijugador y práctica */
+.party-bar {
+  flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #fff;
+  border-radius: 18px; padding: 10px 14px; box-shadow: 0 6px 0 rgba(30, 6, 90, .25);
+}
+.party-bar.solo { font-size: 1.1rem; }
+.pb-info { min-width: 0; }
+.pb-dots { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 4px; }
+.pb-dots .dot { font-size: 16px; opacity: .25; filter: grayscale(1); transition: opacity .2s; }
+.pb-dots .dot.on { opacity: 1; filter: none; }
+.pb-me { display: flex; align-items: center; gap: 8px; flex: none; text-align: right; }
+.pb-me .avatar { width: 46px; height: 46px; font-size: 28px; }
+.pb-me .crown { top: -18px; font-size: 20px; }
+.pb-pos { font-size: .85rem; color: var(--muted); font-weight: 500; }
+.sb-score small, .score small { font-size: .45em; color: var(--muted); font-weight: 600; }
+
+/* Clasificación */
+.leaderboard { display: grid; gap: 6px; margin: 12px 0; text-align: left; }
+.lb-row {
+  display: flex; align-items: center; gap: 8px; background: var(--soft); border-radius: 14px; padding: 6px 12px;
+}
+.lb-row.me { background: #fff7d6; outline: 2px solid var(--gold); }
+.lb-row .avatar { width: 34px; height: 34px; font-size: 20px; border-width: 2px; }
+.lb-pos { width: 24px; font-weight: 700; color: var(--muted); text-align: center; }
+.lb-name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-round { font-weight: 700; color: var(--bad-d); min-width: 28px; text-align: right; }
+.lb-round.ok { color: var(--ok-d); }
+.lb-time { color: var(--muted); font-size: .85rem; }
+.lb-score { font-weight: 700; font-size: 1.2rem; color: var(--bg1); min-width: 32px; text-align: right; }
+.lb-gap { text-align: center; color: var(--muted); line-height: .6; }
+.fast { margin: 10px 0 0; font-weight: 500; color: #7c3aed; }
+#peRanking { max-height: 360px; overflow-y: auto; }
+
+/* Podio de 3 */
+.podium3 .pod { padding-top: 28px; }
+.podium3 .pod.p1 { order: 2; }
+.podium3 .pod.p2 { order: 1; margin-top: 30px; }
+.podium3 .pod.p3 { order: 3; margin-top: 50px; }
+.podium3 .medal { font-size: 1.6rem; line-height: 1; margin-bottom: 4px; }
+.podium3 .score { font-size: 2rem; }
+
+/* Práctica */
+.solo-score { margin: 18px 0; }
+.solo-score .big { font-size: 4rem; font-weight: 700; color: var(--bg1); line-height: 1; }
+.solo-score .big small { font-size: .4em; color: var(--muted); }
+.solo-score .detail { color: var(--muted); font-size: 1.05rem; margin-top: 6px; }
+.fails { text-align: left; margin-top: 20px; display: grid; gap: 8px; }
+.fail { background: #ffecec; border: 2px solid #ffc9c9; border-radius: 14px; padding: 8px 12px; }
+.fail small { color: var(--muted); }
+.fail .arrow { color: var(--muted); }
+.ok-text { color: var(--ok-d); }
+.next-btn { margin: 4px auto 12px; display: block; }
+#editBtn { margin: 8px auto 0; display: block; }
+#editBtn.hidden { display: none; }
+
+@media (max-width: 520px) {
+  .modes { grid-template-columns: 1fr; }
+  .mode { flex-direction: row; justify-content: flex-start; gap: 12px; padding: 12px 16px; text-align: left; }
+  .mode .m-ico { font-size: 1.6rem; }
+  .mode .m-sub { margin-left: auto; }
+  .podium3 { gap: 6px; }
+  .podium3 .pod { padding: 24px 4px 10px; }
+  .lb-time { display: none; }
+}
+
 @media (max-width: 520px) {
   .card { padding: 18px 16px; }
   .answer-row, .join-row { flex-direction: column; }
