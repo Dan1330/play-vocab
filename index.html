@@ -8,8 +8,13 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👑</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   <script>
+    // Tema claro («Plató») u oscuro («Sala de control»), antes de pintar nada para que no parpadee
+    try {
+      var savedTheme = localStorage.getItem('vd_theme');
+      document.documentElement.dataset.theme = savedTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    } catch (e) { document.documentElement.dataset.theme = 'light'; }
     // Pide siempre la última versión de los archivos del juego, para que después de una
     // actualización nadie se quede con archivos viejos guardados en el navegador
     window.V = Date.now().toString(36);
@@ -17,24 +22,24 @@
   </script>
 </head>
 <body>
-  <div class="bg-deco" aria-hidden="true">
-    <span>🎬</span><span>⭐</span><span>🎥</span><span>📽️</span><span>🏆</span><span>🎞️</span><span>✨</span><span>🎤</span><span>🍿</span><span>💬</span>
-  </div>
   <header class="topbar">
-    <div class="brand">Vocab<b>Duel</b></div>
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>Vocab<b>Duel</b></span></div>
     <div class="topbar-right">
       <span id="netStatus" class="net hidden"></span>
-      <button id="musicBtn" class="icon-btn" type="button" title="Música">🎵</button>
+      <button id="themeBtn" class="icon-btn" type="button" title="Cambiar a modo oscuro">🌙</button>
+      <button id="musicBtn" class="icon-btn" type="button" title="Música y voz">🎵</button>
       <button id="muteBtn" class="icon-btn" type="button" title="Efectos de sonido">🔊</button>
     </div>
   </header>
+  <div class="ticker" aria-hidden="true"><div id="tickerTrack" class="ticker-track"></div></div>
 
   <main id="app">
     <!-- INICIO -->
     <section id="screen-home" class="screen">
-      <div class="card">
-        <h1 class="title">¿Quién sabe más palabras?</h1>
-        <p class="subtitle"><span class="lang en">EN</span> ⇄ <span class="lang es">ES</span> · Sin registro</p>
+      <div class="card hero">
+        <span class="kicker">PRAE · Inglés técnico de audiovisuales</span>
+        <h1 class="title">Lights, camera, <em>English!</em></h1>
+        <p class="subtitle">Vocabulario, expresiones y textos de rodaje para el examen · <span class="lang en">EN</span> ⇄ <span class="lang es">ES</span> · sin registro</p>
         <div id="inviteBanner" class="invite hidden">Te han invitado a la sala <b id="inviteCode"></b></div>
         <div class="profile">
           <button id="avatarBtn" class="avatar avatar-big" type="button" title="Cambiar avatar"></button>
@@ -44,19 +49,29 @@
           </div>
         </div>
         <div id="avatarGrid" class="avatar-grid hidden"></div>
+        <div id="dash" class="dash"></div>
         <div class="modes">
           <button id="soloBtn" class="mode mode-solo" type="button">
-            <span class="m-ico">🎯</span><span class="m-title">Práctica</span><span class="m-sub">Tú solo, a tu ritmo</span>
+            <span class="m-num">01</span><span class="m-ico">🎯</span><span class="m-title">Práctica</span><span class="m-sub">Palabras, a tu ritmo</span>
+          </button>
+          <button id="phrasesBtn" class="mode mode-phrases" type="button">
+            <span class="m-num">02</span><span class="m-ico">💬</span><span class="m-title">Expresiones</span><span class="m-sub">Ordenar, completar, dictado…</span>
+          </button>
+          <button id="examModeBtn" class="mode mode-exam" type="button">
+            <span class="m-num">03</span><span class="m-ico">📝</span><span class="m-title">Examen</span><span class="m-sub">Listening y reading</span>
+          </button>
+          <button id="talkBtn" class="mode mode-talk" type="button">
+            <span class="m-num">04</span><span class="m-ico">🎭</span><span class="m-title">Conversaciones</span><span class="m-sub">Diálogos de rodaje</span>
           </button>
           <button id="createBtn" class="mode mode-duel" type="button">
-            <span class="m-ico">⚔️</span><span class="m-title">1 vs 1</span><span class="m-sub">Duelo con un amigo</span>
+            <span class="m-num">05</span><span class="m-ico">⚔️</span><span class="m-title">1 vs 1</span><span class="m-sub">Contra un amigo o al azar</span>
           </button>
           <button id="partyBtn" class="mode mode-party" type="button">
-            <span class="m-ico">🎉</span><span class="m-title">Multijugador</span><span class="m-sub">De 1 a 40 personas</span>
+            <span class="m-num">06</span><span class="m-ico">🎉</span><span class="m-title">Multijugador</span><span class="m-sub">De 1 a 40 personas</span>
           </button>
         </div>
         <div class="home-links">
-          <button id="homeWordsBtn" class="btn btn-ghost words-open" type="button">📖 Ver todas las palabras</button>
+          <button id="homeWordsBtn" class="btn btn-ghost words-open" type="button">📖 Palabras y expresiones</button>
           <button id="homeExamBtn" class="btn btn-ghost exam-open" type="button">📝 Palabras del examen</button>
         </div>
         <div class="divider"><span>o únete a una sala con un código</span></div>
@@ -72,11 +87,12 @@
     <!-- PRÁCTICA: AJUSTES -->
     <section id="screen-solo" class="screen hidden">
       <div class="card">
-        <h2 class="end-title">🎯 Modo práctica</h2>
-        <p class="subtitle">Tú solo y sin prisas. Al final puedes repetir las que falles.</p>
+        <h2 id="soloTitle" class="end-title">🎯 Modo práctica</h2>
+        <p id="soloSub" class="subtitle">Tú solo y sin prisas. Al final puedes repetir las que falles.</p>
         <div id="sSettingsSlot"></div>
         <button id="soloStartBtn" class="btn btn-primary btn-block" type="button">▶ Empezar práctica</button>
-        <button class="btn btn-link words-open" type="button">📖 Ver la lista de palabras</button>
+        <p id="soloInfo" class="msg"></p>
+        <button class="btn btn-link words-open" type="button">📖 Ver la lista de palabras y expresiones</button>
         <button class="btn btn-link leave-btn" type="button">← Volver al inicio</button>
       </div>
     </section>
@@ -96,11 +112,50 @@
         <div id="lobbyPlayers" class="versus"></div>
         <div id="settings" class="settings">
           <div class="setting">
-            <span class="label">Temas <small>· marca los que quieras</small></span>
+            <span class="label">¿Qué quieres practicar?</span>
+            <div class="seg seg-content" data-key="content">
+              <button type="button" data-val="words">📚 Palabras</button>
+              <button type="button" data-val="phrases">💬 Expresiones</button>
+              <button type="button" data-val="texts">📝 Textos <small>(listening y reading)</small></button>
+            </div>
+          </div>
+          <div class="setting" data-for="words">
+            <span class="label">Temas <small>· marca uno, varios o todos</small></span>
             <div class="checks" data-key="sets"></div>
           </div>
+          <div class="setting" data-for="phrases">
+            <span class="label">Secciones <small>· marca una, varias o todas</small></span>
+            <div class="checks" data-key="psets"></div>
+          </div>
+          <div class="setting" data-for="texts">
+            <span class="label">Textos <small>· marca uno, varios o todos</small></span>
+            <div class="checks" data-key="tsets"></div>
+          </div>
+          <div class="setting" data-for="words">
+            <span class="label">Ejercicios <small>· marca uno o varios (si marcas varios, se mezclan)</small></span>
+            <div class="checks kinds" data-key="wkinds"></div>
+          </div>
+          <div class="setting" data-for="phrases">
+            <span class="label">Ejercicios <small>· marca uno o varios (si marcas varios, se mezclan)</small></span>
+            <div class="checks kinds" data-key="pkinds"></div>
+          </div>
+          <div class="setting" data-for="texts">
+            <span class="label">Ejercicios <small>· marca uno o varios (si marcas varios, se mezclan)</small></span>
+            <div class="checks kinds" data-key="tkinds"></div>
+          </div>
           <div class="setting">
-            <span class="label">Tiempo por palabra</span>
+            <span class="label">Preguntas <small class="count-note"></small></span>
+            <div class="seg" data-key="count">
+              <button type="button" data-val="10">10</button>
+              <button type="button" data-val="20">20</button>
+              <button type="button" data-val="30">30</button>
+              <button type="button" data-val="40">40</button>
+              <button type="button" data-val="50">50</button>
+              <button type="button" data-val="0">Todas</button>
+            </div>
+          </div>
+          <div class="setting">
+            <span class="label">Tiempo por pregunta</span>
             <div class="seg" data-key="time">
               <button type="button" data-val="10">10 s</button>
               <button type="button" data-val="15">15 s</button>
@@ -109,15 +164,8 @@
               <button type="button" data-val="60">1 min</button>
             </div>
           </div>
-          <div class="setting">
-            <span class="label">Respuesta</span>
-            <div class="seg" data-key="answer">
-              <button type="button" data-val="type">✍️ Escribir</button>
-              <button type="button" data-val="quiz">🟦 Quiz (4 opciones)</button>
-            </div>
-          </div>
-          <div class="setting">
-            <span class="label">La palabra sale en…</span>
+          <div class="setting" data-dir>
+            <span class="label dir-label">La palabra sale en…</span>
             <div class="seg" data-key="dir">
               <button type="button" data-val="mix">Mezclado</button>
               <button type="button" data-val="en">Inglés</button>
@@ -166,12 +214,36 @@
           <span id="timeLeft" class="pill"></span>
         </div>
         <div id="langHint" class="lang-hint"></div>
+        <div id="ctxBox" class="ctx hidden"></div>
         <div id="promptText" class="prompt"></div>
+        <div id="qText" class="q-text hidden"></div>
+        <div id="subText" class="sub-text hidden"></div>
+        <div id="patternBox" class="pattern hidden"></div>
+        <div id="listenBox" class="listen-box hidden">
+          <button id="listenBtn" class="btn btn-secondary" type="button">🔊 Escuchar otra vez</button>
+          <button id="listenSlowBtn" class="btn btn-ghost btn-small" type="button">🐢 Más despacio</button>
+        </div>
         <div id="hintBox" class="hint hidden"></div>
         <div class="timer"><div id="timerBar" class="timer-bar"></div></div>
         <div id="quizBox" class="quiz hidden"></div>
+        <div id="matchBox" class="match hidden">
+          <div id="matchLeft" class="match-col"></div>
+          <div id="matchRight" class="match-col"></div>
+          <div class="match-actions">
+            <button id="matchReset" class="btn btn-ghost btn-small" type="button">↺ Empezar de nuevo</button>
+            <button id="matchSend" class="btn btn-primary" type="button">Comprobar</button>
+          </div>
+        </div>
+        <div id="orderBox" class="order hidden">
+          <div id="orderBuilt" class="order-built"></div>
+          <div id="orderBank" class="order-bank"></div>
+          <div class="order-actions">
+            <button id="orderUndo" class="btn btn-ghost btn-small" type="button">⌫ Quitar la última</button>
+            <button id="orderSend" class="btn btn-primary" type="button">Comprobar</button>
+          </div>
+        </div>
         <form id="answerForm" class="answer-row">
-          <input id="answerInput" maxlength="60" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Escribe la traducción…">
+          <input id="answerInput" maxlength="150" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Escribe la traducción…">
           <button id="sendBtn" class="btn btn-primary" type="submit">Enviar</button>
         </form>
         <button id="skipBtn" class="btn btn-link" type="button">No lo sé 🤷</button>
@@ -242,17 +314,79 @@
         <button class="btn btn-link leave-btn" type="button">🏠 Menú principal</button>
       </div>
     </section>
+
+    <!-- EXAMEN: LISTA DE TEXTOS -->
+    <section id="screen-exams" class="screen hidden">
+      <div class="card">
+        <h2 class="end-title">📝 Examen: listening y reading</h2>
+        <p class="subtitle">Como en el examen: escuchas un diálogo y completas los huecos (1 punto cada uno)
+          y contestas a las preguntas sobre el texto (2 puntos cada una).</p>
+        <div class="row ex-quick">
+          <button id="exRandomSim" class="btn btn-primary" type="button">🎯 Simulacro al azar</button>
+          <button id="exRandomAct" class="btn btn-secondary" type="button">🔀 Actividad al azar</button>
+        </div>
+        <div id="exList" class="ex-list"></div>
+        <button class="btn btn-link leave-btn" type="button">← Volver al inicio</button>
+      </div>
+    </section>
+
+    <!-- EXAMEN: ACTIVIDAD -->
+    <section id="screen-examrun" class="screen hidden">
+      <div class="card ex-card">
+        <div class="talk-head">
+          <button id="exBack" class="btn-mini" type="button">← Textos</button>
+          <div class="talk-title"><b id="exTitle"></b><small id="exSub"></small></div>
+          <span id="exTag" class="pill hidden"></span>
+        </div>
+        <div id="exBody" class="ex-body"></div>
+      </div>
+    </section>
+
+    <!-- CONVERSACIONES: LISTA -->
+    <section id="screen-talks" class="screen hidden">
+      <div class="card">
+        <h2 class="end-title">🎭 Conversaciones</h2>
+        <p class="subtitle">Diálogos de rodaje con las expresiones del PDF. Tú eres uno de los personajes:
+          cuando te toque hablar, elige, ordena o completa lo que dices.</p>
+        <div id="talkList" class="talk-list"></div>
+        <button class="btn btn-link leave-btn" type="button">← Volver al inicio</button>
+      </div>
+    </section>
+
+    <!-- CONVERSACIÓN -->
+    <section id="screen-talk" class="screen hidden">
+      <div class="card talk-card">
+        <div class="talk-head">
+          <button id="talkBack" class="btn-mini" type="button">← Salir</button>
+          <div class="talk-title"><b id="talkTitle"></b><small id="talkRole"></small></div>
+          <div class="talk-opts">
+            <button id="talkVoice" class="btn-mini" type="button" title="Leer en voz alta">🔊</button>
+            <button id="talkTr" class="btn-mini" type="button" title="Ver las traducciones">🇪🇸</button>
+          </div>
+        </div>
+        <div class="talk-progress"><div id="talkBar"></div></div>
+        <div id="talkLog" class="talk-log" aria-live="polite"></div>
+        <div id="talkTask" class="talk-task hidden"></div>
+        <div id="talkEnd" class="talk-end hidden"></div>
+      </div>
+    </section>
   </main>
 
   <!-- LISTA DE PALABRAS -->
-  <div id="wordsModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Todas las palabras">
+  <div id="wordsModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Palabras y expresiones">
     <div class="modal-card">
       <div class="modal-head">
-        <h2>📖 Todas las palabras</h2>
+        <h2>📖 Palabras y expresiones</h2>
         <button id="wordsClose" class="close-btn" type="button" title="Cerrar">✕</button>
       </div>
-      <input id="wordsSearch" placeholder="🔍 Buscar en inglés o en español…" autocomplete="off" spellcheck="false">
-      <div id="wordsCats" class="seg"></div>
+      <div id="wordsTabs" class="seg tabs">
+        <button type="button" data-tab="words" class="on">📚 Palabras <small></small></button>
+        <button type="button" data-tab="phrases">💬 Expresiones <small></small></button>
+      </div>
+      <div class="words-filters">
+        <input id="wordsSearch" placeholder="🔍 Buscar en inglés o en español…" autocomplete="off" spellcheck="false">
+        <select id="wordsCat" aria-label="Tema"></select>
+      </div>
       <div id="wordsHide" class="seg">
         <button type="button" data-hide="" class="on">👀 Ver todo</button>
         <button type="button" data-hide="en">Tapar inglés</button>
@@ -335,8 +469,21 @@
   <div id="musicModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Música">
     <div class="modal-card">
       <div class="modal-head">
-        <h2>🎵 Música</h2>
+        <h2>🎵 Música y voz</h2>
         <button id="musicClose" class="close-btn" type="button" title="Cerrar">✕</button>
+      </div>
+      <div class="voice-box">
+        <label for="voiceSelect">🗣️ Voz en inglés</label>
+        <div class="join-row">
+          <select id="voiceSelect"></select>
+          <button id="voiceTest" class="btn btn-secondary" type="button">▶ Probar</button>
+        </div>
+        <div id="voiceRate" class="seg">
+          <button type="button" data-rate="0.8">🐢 Más lenta</button>
+          <button type="button" data-rate="1">Normal</button>
+          <button type="button" data-rate="1.15">🐇 Más rápida</button>
+        </div>
+        <p id="voiceNote" class="music-note"></p>
       </div>
       <button id="musicToggle" class="btn btn-secondary btn-block" type="button"></button>
       <div id="musicNow" class="music-now"></div>
@@ -391,7 +538,8 @@
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script>
     // Archivos del juego, en orden y siempre en su última versión
-    ['words.js', 'net.js', 'match.js', 'host.js', 'screens.js', 'modes.js', 'music.js', 'ytmusic.js', 'extras.js', 'teach.js', 'app.js']
+    ['words.js', 'phrases.js', 'convos.js', 'texts.js', 'kinds.js', 'voice.js', 'net.js', 'match.js', 'host.js', 'screens.js', 'modes.js',
+      'music.js', 'ytmusic.js', 'extras.js', 'teach.js', 'talk.js', 'exam.js', 'app.js']
       .forEach(f => {
         const s = document.createElement('script');
         s.src = f + '?v=' + window.V;

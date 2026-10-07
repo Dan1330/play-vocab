@@ -1,20 +1,24 @@
 // Pinta las pantallas a partir del estado (S) que manda el anfitrión, más sonidos y efectos.
 // Las pantallas propias de práctica y multijugador están en modes.js.
-const LANG = { en: '<span class="lang en">EN</span>', es: '<span class="lang es">ES</span>' };
+const $ = id => document.getElementById(id);
+const LANG ={ en: '<span class="lang en">EN</span>', es: '<span class="lang es">ES</span>' };
 const LANG_NAME = { en: 'inglés', es: 'español' };
 const otherLang = l => (l === 'en' ? 'es' : 'en');
 
 let lastPhase = null, lastRound = -1, lastScores = {}, lastPlayers = {}, reviewKey = '', podiumKey = '', lastTickSec = 0;
 let endShownAt = 0;  // cuándo empezó la ceremonia del podio (para callar la música durante el redoble)
-// Pistas de la práctica: a los 20 s sin responder sale una letra, y otra cada 5 s
+// Pistas de la práctica: a los 20 s sin responder sale una letra (o una palabra, en las frases), y otra cada 5 s
 const HINT_AFTER_MS = 20000, HINT_EVERY_MS = 5000;
-let roundShownAt = 0, hintRound = 0, hintTarget = '', hintShown = 0;
+let roundShownAt = 0, hintRound = 0, hintTarget = '', hintShown = 0, hintWords = false;
+let orderPicked = []; // ejercicio de ordenar: fichas que has ido tocando, en orden
+let matchSel = -1, matchPairs = []; // parejas: la de la izquierda elegida y con cuál de la derecha va cada una
 let soloRecord = {}; // récords superados en la última práctica
 let myLog = [];    // mis resultados por ronda (para el repaso del multijugador)
 let roundLog = []; // resultados de todos por ronda (para ver las respuestas de los demás en el repaso)
 let ceremonyTimer = null;
 
 const secs = ms => (ms / 1000).toFixed(1).replace('.', ',') + ' s';
+const timecode = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; // 00:12
 
 // Cambia el contenido solo si es distinto (así las animaciones no se repiten en cada actualización)
 function setHTML(el, html) {
@@ -75,7 +79,7 @@ function onPhaseChange(phase) {
     if (r) myLog[S.round] = r;
     roundLog[S.round] = S.reveal.results;
     // para "Mis difíciles" (si necesitaste pistas, también cuenta como difícil)
-    if (r && S.q) Stats.record(wordKey(S.q.from, S.q.prompt, S.reveal.answer), !!r.ok && hintRound !== S.round);
+    if (r && S.q) Stats.record(S.q.key, !!r.ok && hintRound !== S.round);
     if (r && r.ok) {
       Sound.correct();
       if (r.streak >= 2) Sound.streak(r.streak);
@@ -151,7 +155,69 @@ function renderLobby() {
   $('startBtn').disabled = !ready;
   const n = settingsCount(S.settings);
   $('lobbyMsg').textContent = !isHost ? 'Esperando a que el anfitrión empiece la partida…'
-    : ready ? `${n} palabras · ¡Cuando quieras!` : 'Esperando a que entre tu rival…';
+    : ready ? `${n} ${unitName(S.settings, n)} · ¡Cuando quieras!` : 'Esperando a que entre tu rival…';
+}
+
+// Qué hay que hacer en cada tipo de pregunta
+function langHintHTML(q, kind) {
+  const to = q.to || otherLang(q.from);
+  const pair = `${LANG[q.from]} → ${LANG[to]} &nbsp;`;
+  const title = q.title ? ` · <b>${esc(q.title)}</b>` : '';
+  const voice = canSpeak();
+  switch (kind) {
+    case 'quiz': return `${pair}Elige la traducción en <b>${LANG_NAME[to]}</b>`;
+    case 'first': return `${pair}🔡 Escríbela en <b>${LANG_NAME[to]}</b> (con pista)`;
+    case 'anagram': return `${LANG.es} → ${LANG.en} &nbsp;🔤 Ordena las letras de la palabra en <b>inglés</b>`;
+    case 'spell': return voice ? `${LANG.en} &nbsp;🎧 Escucha la palabra y escríbela en <b>inglés</b>` : `${LANG.es} → ${LANG.en} &nbsp;Escríbela en <b>inglés</b>`;
+    case 'hear': return voice ? `${LANG.en} → ${LANG.es} &nbsp;👂 Escucha y elige qué significa` : `${LANG.en} → ${LANG.es} &nbsp;Elige qué significa`;
+    case 'tf': return `${pair}⚖️ ¿Es correcta esta traducción?`;
+    case 'match': return `${LANG.en} ⇄ ${LANG.es} &nbsp;🔗 Une cada una con su traducción`;
+    case 'order': return `${pair}🧩 Ordena las palabras en <b>inglés</b>`;
+    case 'gap': return `${LANG.en} &nbsp;🕳️ Escribe la palabra que falta`;
+    case 'gapq': return `${LANG.en} &nbsp;🎯 Elige la palabra que falta`;
+    case 'initials': return `${LANG.es} → ${LANG.en} &nbsp;🔠 Escribe la frase en <b>inglés</b> (con las iniciales)`;
+    case 'listen': return voice ? `${LANG.en} &nbsp;🎧 Escucha y escribe la frase en <b>inglés</b>` : `${LANG.es} → ${LANG.en} &nbsp;Escribe esta frase en <b>inglés</b>`;
+    case 'error': return `${LANG.en} &nbsp;🕵️ Toca la palabra que está mal escrita`;
+    case 'role': return `${LANG.en} &nbsp;🧑‍🎤 ¿Quién lo diría en un rodaje?`;
+    case 'tgap': return `🎧 Listening${title}`;
+    case 'tq': return `📖 Reading${title}`;
+    case 'ttf': return `⚖️ True or false?${title}`;
+    case 'who': return `🗣️ ¿Quién lo dice?${title}`;
+    case 'next': return `⏭️ ¿Qué viene después?${title}`;
+    default: return `${pair}${q.ph ? 'Escribe la frase en' : 'Escríbela en'} <b>${LANG_NAME[to]}</b>`;
+  }
+}
+const PLACEHOLDERS = {
+  gap: 'Escribe la palabra que falta…', listen: 'Escribe lo que oyes…', spell: 'Escribe la palabra que oyes…',
+  tgap: 'Escribe lo que falta…', initials: 'Escribe la frase en inglés…',
+};
+const VOICE_KINDS = ['listen', 'spell', 'hear', 'tgap'];
+
+// El enunciado de la pregunta: trozo del diálogo, palabra o frase, pregunta, pista fija, traducción y audio
+function paintPrompt(q, kind) {
+  const voice = canSpeak();
+  const ctx = q && q.ctx;
+  setHTML($('ctxBox'), ctx ? ctx.map(l => `<div class="ctx-line${l.me ? ' me' : ''}"><b>${esc(l.who)}:</b> ${esc(l.text).replace(/_____/g, '<span class="blank">_____</span>')}</div>`).join('') : '');
+  $('ctxBox').classList.toggle('hidden', !ctx);
+  let text = q ? q.prompt : '…';
+  if (q && q.tx) text = ''; // en los textos ya se ve en el diálogo
+  else if (q && !voice && (kind === 'listen' || kind === 'spell')) text = q.sub || q.prompt; // sin voz: se traduce
+  else if (q && !voice && kind === 'hear') text = q.say;
+  const prompt = $('promptText');
+  prompt.textContent = text;
+  prompt.classList.toggle('hidden', !text);
+  prompt.classList.toggle('long', text.length > 22);
+  prompt.classList.toggle('icon', Array.from(text).length <= 2 && /\p{Extended_Pictographic}/u.test(text));
+  const question = !q ? '' : kind === 'tf' ? `= ${q.pair}` : q.question || (kind === 'error' ? '¿Qué palabra está mal escrita?' : '');
+  $('qText').textContent = question;
+  $('qText').classList.toggle('hidden', !question);
+  $('qText').classList.toggle('pair', kind === 'tf');
+  $('patternBox').textContent = (q && q.pattern) || '';
+  $('patternBox').classList.toggle('hidden', !(q && q.pattern));
+  const sub = q && ['gap', 'gapq'].includes(kind) ? q.sub : '';
+  $('subText').textContent = sub ? `🇪🇸 ${sub}` : '';
+  $('subText').classList.toggle('hidden', !sub);
+  $('listenBox').classList.toggle('hidden', !(q && q.say && voice && VOICE_KINDS.includes(kind) && S.phase === 'question'));
 }
 
 // ---------- Partida (todos los modos) ----------
@@ -162,15 +228,11 @@ function renderGame() {
   else renderDuelBoard();
 
   const q = S.q;
-  $('roundText').textContent = S.total ? `Palabra ${Math.max(S.round, 1)} / ${S.total}` : '';
-  if (q) {
-    const to = otherLang(q.from);
-    $('promptText').textContent = q.prompt;
-    $('langHint').innerHTML = `${LANG[q.from]} → ${LANG[to]} &nbsp;${q.options ? 'Elige la traducción en' : 'Escríbela en'} <b>${LANG_NAME[to]}</b>`;
-  } else {
-    $('promptText').textContent = '…';
-    $('langHint').innerHTML = '';
-  }
+  const kind = q ? q.kind || (q.options ? 'quiz' : 'type') : 'type';
+  const how = inputOf(kind); // text, choice, pick, order o match
+  $('roundText').textContent = S.total ? `${q && q.tx ? 'Pregunta' : q && q.ph ? 'Frase' : 'Palabra'} ${Math.max(S.round, 1)} / ${S.total}` : '';
+  $('langHint').innerHTML = q ? langHintHTML(q, kind) : '';
+  paintPrompt(q, kind);
 
   const input = $('answerInput');
   if (S.phase === 'question' && S.round !== lastRound) {
@@ -179,21 +241,32 @@ function renderGame() {
     pending = null;
     editing = 0;
     actN = 0;
+    orderPicked = [];
+    matchSel = 0;
+    matchPairs = [];
     roundShownAt = Date.now();
     hintShown = 0;
-    hintTarget = mode === 'solo' && !(q && q.options) && host && host.deck[S.round - 1] ? expandForms([host.deck[S.round - 1].answer])[0] : '';
+    // pistas de la práctica (solo al escribir o al ordenar palabras)
+    const card = mode === 'solo' && host && (how === 'text' || kind === 'order') ? host.deck[S.round - 1] : null;
+    hintTarget = !card ? '' : card.ph && !card.full ? expandPhrase(card.answer)[0] : card.ph ? card.answer : expandForms([card.answer])[0];
+    hintWords = !!(card && card.ph && hintTarget.includes(' '));
     input.value = '';
-    setTimeout(() => input.focus({ preventScroll: true }), 60);
+    input.placeholder = PLACEHOLDERS[kind] || (q && q.ph ? `Escribe la frase en ${LANG_NAME[q.to || 'en']}…` : 'Escribe la traducción…');
+    if (q && q.say && VOICE_KINDS.includes(kind) && canSpeak()) setTimeout(() => Teach.speak(q.say, 'en', { quiet: true }), 350);
+    if (how === 'text') setTimeout(() => input.focus({ preventScroll: true }), 60);
   }
   const sent = pending && pending.round === S.round;
   const isEditing = S.phase === 'question' && editing === S.round;
   const canAnswer = S.phase === 'question' && (isEditing || (!S.answered[me.id] && !sent));
   const revealing = S.phase === 'reveal';
-  const quiz = !!(q && q.options);
-  $('answerForm').classList.toggle('hidden', revealing || quiz);
+  $('answerForm').classList.toggle('hidden', revealing || how !== 'text');
   $('skipBtn').classList.toggle('hidden', revealing);
-  $('quizBox').classList.toggle('hidden', !quiz);
-  if (quiz) renderQuiz(canAnswer);
+  $('quizBox').classList.toggle('hidden', how !== 'choice' && how !== 'pick');
+  $('orderBox').classList.toggle('hidden', how !== 'order');
+  $('matchBox').classList.toggle('hidden', how !== 'match');
+  if (how === 'choice' || how === 'pick') renderQuiz(canAnswer, how === 'pick');
+  if (how === 'order') renderOrder(canAnswer, kind === 'anagram');
+  if (how === 'match') renderMatch(canAnswer);
   input.disabled = !canAnswer;
   $('sendBtn').disabled = !canAnswer;
   $('skipBtn').disabled = !canAnswer;
@@ -223,14 +296,25 @@ function scoreHTML(p, unit = '') {
 
 const streakBadge = p => (p.streak >= 2 ? ` <span class="streak-badge">🔥${p.streak}</span>` : '');
 
-// Modo quiz: 4 casillas de colores (como en Kahoot)
+// Modo quiz: casillas de colores (como en Kahoot). pick: las palabras de la frase, para tocar la que está mal
 const QUIZ_SHAPES = ['▲', '◆', '●', '■'];
-function renderQuiz(canAnswer) {
+function renderQuiz(canAnswer, pick = false) {
   const q = S.q;
   const r = S.phase === 'reveal' && S.reveal && typeof S.reveal.correct === 'number' ? S.reveal : null;
   const mine = r ? r.results[me.id] : null;
   const chosen = r ? (mine ? mine.choice : null) : pending && pending.round === S.round ? pending.choice : null;
   const picked = chosen !== null && chosen !== undefined;
+  $('quizBox').classList.toggle('pick-mode', pick);
+  $('quizBox').classList.toggle('two', q.options.length === 2);
+  if (pick) {
+    setHTML($('quizBox'), `<div class="pick">${q.options.map((w, i) => {
+      let cls = 'chip';
+      if (r) cls += i === r.correct ? ' right' : chosen === i ? ' wrong' : '';
+      else if (picked && chosen === i) cls += ' on';
+      return `<button type="button" class="${cls}" data-choice="${i}"${canAnswer ? '' : ' disabled'}>${esc(w)}</button>`;
+    }).join('')}</div><!--${S.round}-->`);
+    return;
+  }
   setHTML($('quizBox'), q.options.map((opt, i) => {
     let cls = 'qopt q' + i;
     if (r) cls += i === r.correct ? ' right' : chosen === i ? ' wrong' : ' dim';
@@ -239,6 +323,50 @@ function renderQuiz(canAnswer) {
     return `<button type="button" class="${cls}" data-choice="${i}"${canAnswer ? '' : ' disabled'}>
       <span class="qshape">${QUIZ_SHAPES[i]}</span><span class="qtext">${esc(opt)}</span>${mark}</button>`;
   }).join('') + `<!--${S.round}-->`); // cada palabra nueva se vuelve a animar
+}
+
+// Parejas: inglés a la izquierda y español a la derecha; tocas una y luego su pareja (cada pareja, de un color)
+function renderMatch(canAnswer) {
+  const q = S.q;
+  const r = S.phase === 'reveal' && S.reveal ? S.reveal : null;
+  const off = canAnswer ? '' : ' disabled';
+  let pairs = matchPairs;
+  const right = r && r.solution ? r.solution.split(',').map(Number) : null;
+  if (r) { // lo que respondiste (también si lo mandaste desde otro dispositivo)
+    const mine = r.results[me.id];
+    pairs = mine && /^\d(,\d)*$/.test(mine.text) ? mine.text.split(',').map(Number) : pairs;
+  }
+  setHTML($('matchLeft'), q.left.map((t, i) => {
+    let cls = 'mitem' + (pairs[i] >= 0 ? ` p${i}` : '') + (!r && matchSel === i ? ' sel' : '');
+    if (right) cls += pairs[i] === right[i] ? ' right' : ' wrong';
+    return `<button type="button" class="${cls}" data-ml="${i}"${off}>${esc(t)}</button>`;
+  }).join(''));
+  setHTML($('matchRight'), q.right.map((t, j) => {
+    const owner = pairs.indexOf(j);
+    return `<button type="button" class="mitem${owner >= 0 ? ` p${owner}` : ''}" data-mr="${j}"${off}>${esc(t)}</button>`;
+  }).join('') + `<!--${S.round}-->`);
+  document.querySelector('.match-actions').classList.toggle('hidden', !!r);
+  $('matchSend').disabled = !canAnswer || pairs.filter(x => x >= 0).length < q.left.length;
+  $('matchReset').disabled = !canAnswer || !pairs.some(x => x >= 0);
+}
+
+// Ordenar la frase (o las letras de una palabra): arriba lo que llevas, abajo las fichas que quedan
+function renderOrder(canAnswer, letters = false) {
+  $('orderBox').classList.toggle('letters', letters);
+  const chips = S.q.chips || [];
+  const revealing = S.phase === 'reveal';
+  const off = canAnswer ? '' : ' disabled';
+  const built = orderPicked.map((ci, pos) => `<button type="button" class="chip on" data-unpick="${pos}"${off}>${esc(chips[ci])}</button>`).join('');
+  setHTML($('orderBuilt'), built || `<span class="order-empty">${revealing ? '—' : `Toca las ${letters ? 'letras' : 'palabras'} en orden 👇`}</span>`);
+  setHTML($('orderBank'), chips.map((c, ci) => (orderPicked.includes(ci) ? `<span class="chip ghost">${esc(c)}</span>`
+    : `<button type="button" class="chip" data-pick="${ci}"${off}>${esc(c)}</button>`)).join('') + `<!--${S.round}-->`);
+  const mine = revealing && S.reveal ? S.reveal.results[me.id] : null;
+  $('orderBuilt').classList.toggle('ok', !!(mine && mine.ok));
+  $('orderBuilt').classList.toggle('bad', !!(mine && !mine.ok));
+  $('orderBank').classList.toggle('hidden', revealing);
+  document.querySelector('.order-actions').classList.toggle('hidden', revealing);
+  $('orderUndo').disabled = !canAnswer || !orderPicked.length;
+  $('orderSend').disabled = !canAnswer || !orderPicked.length;
 }
 
 function renderDuelBoard() {
@@ -267,10 +395,12 @@ function resultNotes(res) {
   const notes = [];
   if (res.fast) notes.push(`⚡ Rápido (${secs(res.ms)}): +1`);
   if (res.bonus) notes.push(`🔥 Racha de ${res.streak}: +${res.bonus}`);
-  if (res.ok === 2) notes.push('Vale, pero ojo con las tildes');
+  if (res.ok === 2) notes.push(accentNote());
   if (!res.ok && res.lost >= 2) notes.push(`💔 Racha de ${res.lost} perdida`);
   return notes.length ? `<small>${notes.join(' · ')}</small>` : '';
 }
+
+const accentNote = () => (S.reveal && S.reveal.ph ? 'Vale, pero ojo con las tildes y los apóstrofos (\')' : 'Vale, pero ojo con las tildes');
 
 // Aviso grande con tu resultado (como en Kahoot)
 function splashHTML(res) {
@@ -288,7 +418,7 @@ function splashHTML(res) {
     }
     return `<div class="splash ok"><div class="splash-title">¡Correcto!${solo ? '' : ` <b>+${res.pts}</b>`}</div>
       ${!solo && parts.length > 1 ? `<div class="splash-parts">${parts.map(x => `<span>${x}</span>`).join('')}</div>` : ''}
-      ${res.ok === 2 ? `<div class="splash-note">Vale, pero ojo con las tildes</div>${almost.html}` : ''}${streak}</div>`;
+      ${res.ok === 2 ? `<div class="splash-note">${accentNote()}</div>${almost.html}` : ''}${streak}</div>`;
   }
   const lost = res.lost >= 2 ? `<div class="splash-streak">💔 Has perdido tu racha de ${res.lost}</div>` : '';
   const title = !res.text ? 'Sin respuesta' : almost.near ? '🤏 ¡Casi!' : '¡Incorrecto!';
@@ -308,17 +438,29 @@ function revealAlsoHTML(r) {
   return r.also.length ? `<div class="also">También vale: ${r.also.map(esc).join(' · ')}</div>` : '';
 }
 
+// La respuesta correcta (en "completar", también la frase entera; en frases, su traducción; en parejas, todas)
+function solHTML(r) {
+  const full = r.full ? `<div class="sol-full">${esc(r.full.pre)}<b>${esc(r.full.word)}</b>${esc(r.full.post)}</div>` : '';
+  const main = r.pairs
+    ? `<div class="sol-label">Las parejas eran</div><div class="sol-pairs">${r.pairs.map(([a, b]) => `<div><b>${esc(a)}</b><span>=</span>${esc(b)}</div>`).join('')}</div>`
+    : `<div class="sol-label">Respuesta correcta</div><div class="sol${String(r.answer).length > 24 ? ' long' : ''}">${esc(r.answer)}</div>`;
+  return `${main}${full}${r.sub ? `<div class="sol-sub">🇪🇸 ${esc(r.sub)}</div>` : ''}
+    ${r.note ? `<div class="sol-note">💡 ${esc(r.note)}</div>` : ''}${revealAlsoHTML(r)}`;
+}
+
+// Lo que respondió alguien, para enseñarlo (en parejas no se ve el código de la respuesta)
+const answerText = (res, kind) => (kind === 'match' && res.text ? (res.ok ? '✓ todas las parejas' : '✗ alguna pareja mal') : res.text);
+
 function duelRevealHTML() {
   const r = S.reveal;
   const results = S.players.map(p => {
     const res = r.results[p.id] || { text: '', ok: 0 };
-    const said = res.text ? `“${esc(res.text)}”` : '<i>sin respuesta</i>';
+    const said = res.text ? `“${esc(answerText(res, r.kind))}”` : '<i>sin respuesta</i>';
     return `<div class="result${res.ok ? ' ok' : ''}">${avatarHTML(p, false)}
       <div class="r-text"><b>${esc(p.name)}</b>: ${said}${resultNotes(res)}</div>
       <div class="r-points">${ptsHTML(res)}</div></div>`;
   }).join('');
-  return `${splashHTML(r.results[me.id])}
-    <div class="sol-label">Respuesta correcta</div><div class="sol">${esc(r.answer)}</div>${revealAlsoHTML(r)}
+  return `${splashHTML(r.results[me.id])}${solHTML(r)}
     <div class="results">${results}</div>${duelPositionHTML()}<div class="next-bar"><div id="nextBar"></div></div>`;
 }
 
@@ -365,10 +507,10 @@ function renderEnd() {
   if (key === reviewKey) return;
   reviewKey = key;
   $('reviewList').innerHTML = hist.map((h, i) => `<div class="rv">
-    <div class="rv-q">${i + 1}. ${LANG[h.from]} ${esc(h.prompt)} <span class="arrow">→</span> ${LANG[otherLang(h.from)]} ${esc(h.answer)}</div>
+    <div class="rv-q">${i + 1}. ${LANG[h.from]} ${esc(h.prompt)} <span class="arrow">→</span> ${LANG[h.to || otherLang(h.from)]} ${esc(h.answer)}</div>
     ${S.players.map(p => {
       const res = h.results[p.id] || { text: '', ok: 0 };
-      return `<div class="rv-a ${res.ok ? 'ok' : 'bad'}">${esc(p.avatar)} ${res.ok ? '✓' : '✗'} ${res.text ? esc(res.text) : '—'}</div>`;
+      return `<div class="rv-a ${res.ok ? 'ok' : 'bad'}">${esc(p.avatar)} ${res.ok ? '✓' : '✗'} ${res.text ? esc(answerText(res, h.kind)) : '—'}</div>`;
     }).join('')}</div>`).join('');
 }
 
@@ -391,26 +533,29 @@ function frame() {
   const left = Math.max(0, localEndsAt - Date.now());
   const frac = S.duration ? left / S.duration : 0;
   const answered = S.answered[me.id] || (pending && pending.round === S.round);
-  // aviso de "⚡ +1" mientras dura la ventana de respuesta rápida
-  const fastOn = S.phase === 'question' && S.mode !== 'solo' && S.duration && S.duration - left < FAST_MS && !answered;
+  // aviso de "⚡ +1" mientras dura la ventana de respuesta rápida (más larga con las frases)
+  const fastOn = S.phase === 'question' && S.mode !== 'solo' && S.duration && S.duration - left < ((S.q && S.q.fast) || FAST_MS) && !answered;
   $('fastBadge').classList.toggle('hidden', !fastOn);
   updateHint(answered);
+  // (solo se toca el DOM si algo cambia: esto se ejecuta 60 veces por segundo)
+  const setText = (el, text) => { if (el.textContent !== text) el.textContent = text; };
+  const bar = $('timerBar');
   if (S.phase === 'question') {
-    const bar = $('timerBar');
     if (!S.duration) { // práctica sin límite de tiempo
       bar.style.width = '100%';
-      bar.className = 'timer-bar';
-      $('timeLeft').textContent = '⏱ ∞';
+      if (bar.className !== 'timer-bar') bar.className = 'timer-bar';
+      setText($('timeLeft'), '∞');
       return;
     }
     bar.style.width = frac * 100 + '%';
-    bar.className = 'timer-bar' + (frac < 0.25 ? ' danger' : frac < 0.5 ? ' warn' : '');
+    const cls = 'timer-bar' + (frac < 0.25 ? ' danger' : frac < 0.5 ? ' warn' : '');
+    if (bar.className !== cls) bar.className = cls;
     const sec = Math.ceil(left / 1000);
-    $('timeLeft').textContent = `⏱ ${sec} s`;
+    setText($('timeLeft'), timecode(sec));
     if (sec <= 3 && sec > 0 && sec !== lastTickSec && !answered) { lastTickSec = sec; Sound.tick(); }
   } else if (S.phase === 'reveal') {
-    $('timerBar').style.width = '0%';
-    $('timeLeft').textContent = '⏱ 0 s';
+    bar.style.width = '0%';
+    setText($('timeLeft'), '00:00');
     const nb = document.getElementById('nextBar');
     if (nb) nb.style.width = frac * 100 + '%';
   } else if (S.phase === 'countdown') {
@@ -427,7 +572,9 @@ function frame() {
 }
 
 // Pista de la práctica: "e _ _ _ _ _" con las primeras letras destapadas
-function hintText(target, n) {
+// (en las frases, las primeras palabras: "Let's go _ _ _ _ _ _ _ …")
+function hintText(target, n, words = false) {
+  if (words) return target.split(/\s+/).map((w, i) => (i < n ? w : Array.from(w, ch => (/[\p{L}\p{N}]/u.test(ch) ? '_' : ch)).join(' '))).join('   ');
   let shown = 0;
   return target.split(' ').map(word => Array.from(word).map(ch => {
     if (!/[\p{L}\p{N}]/u.test(ch)) return ch;
@@ -442,13 +589,13 @@ function updateHint(answered) {
     return;
   }
   const elapsed = Date.now() - roundShownAt;
-  const letters = Array.from(hintTarget).filter(ch => /[\p{L}\p{N}]/u.test(ch)).length;
-  const n = elapsed < HINT_AFTER_MS ? 0 : Math.min(letters, 1 + Math.floor((elapsed - HINT_AFTER_MS) / HINT_EVERY_MS));
+  const total = hintWords ? hintTarget.split(/\s+/).length : Array.from(hintTarget).filter(ch => /[\p{L}\p{N}]/u.test(ch)).length;
+  const n = elapsed < HINT_AFTER_MS ? 0 : Math.min(total, 1 + Math.floor((elapsed - HINT_AFTER_MS) / HINT_EVERY_MS));
   if (!n) { el.classList.add('hidden'); return; }
   if (n !== hintShown) {
     hintShown = n;
     hintRound = S.round;
-    el.textContent = '💡 ' + hintText(hintTarget, n);
+    el.textContent = '💡 ' + hintText(hintTarget, n, hintWords);
     el.classList.remove('hidden');
     shake(el);
     Sound.tick();
@@ -464,7 +611,7 @@ function shake(el) {
 
 function confetti(count = 90) {
   const box = $('confetti');
-  const colors = ['#ffcf33', '#ff8a1f', '#2fb8ff', '#1fbf63', '#f0484a', '#a23be8'];
+  const colors = ['#ff4b2b', '#ffd23f', '#3d5afe', '#17c27c', '#ff6fb1', '#8f5cff', '#21d0ec'];
   for (let i = 0; i < count; i++) {
     const c = document.createElement('i');
     c.style.left = Math.random() * 100 + '%';

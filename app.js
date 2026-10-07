@@ -1,8 +1,6 @@
 // Perfil sin registro, modos de juego (práctica, 1 vs 1, multijugador) y conexión con los demás.
-const $ = id => document.getElementById(id);
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const FUN_NAMES = ['Foquista', 'Guionista', 'Gaffer', 'Cinéfilo', 'Productor', 'Microfonista', 'Escenógrafo', 'Montador'];
-const TIME_OPTIONS = [10, 15, 20, 30, 60];
 
 const storage = type => ({
   get(k) { try { return window[type].getItem(k); } catch (e) { return null; } },
@@ -32,32 +30,52 @@ let joined = false, lastSv = 0, lastHostMsg = 0, joinDeadline = 0, guestTimer = 
 let handoff = null;   // al pasar el anfitrión: si nadie lo coge, lo recuperas
 let soloRun = { key: '', name: '', retry: false }; // qué temas se están practicando (para los récords)
 
-// Ajustes de la práctica: temas marcados, "solo mis difíciles", tiempo e idioma
+// Ajustes de la práctica: qué practicar, temas o secciones, nº de preguntas, "solo mis difíciles", tiempo…
 const soloSettings = (() => {
-  const s = { sets: [...ALL_SETS], hard: false, time: 0, dir: 'mix', answer: 'type', exam: Exam.on, learn: true };
+  const s = { ...JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), hard: false, time: 0, exam: Exam.on, learn: true };
   try {
     const saved = JSON.parse(local.get('vd_solo') || '{}');
     if (validSets(saved.sets).length) s.sets = validSets(saved.sets);
     else if (ALL_SETS.includes(saved.set)) s.sets = [saved.set]; // ajustes de la versión anterior
+    // si antes tenías marcados todos los temas que había, ahora también entran los nuevos
+    if (!('content' in saved) && ['skills', 'film'].every(k => (saved.sets || []).includes(k))) s.sets = [...ALL_SETS];
+    if (validPsets(saved.psets).length) s.psets = validPsets(saved.psets);
+    if (validTsets(saved.tsets).length) s.tsets = validTsets(saved.tsets);
     s.hard = saved.hard === true || saved.set === 'hard';
+    if (CONTENTS.includes(saved.content)) s.content = saved.content;
+    if (COUNT_OPTIONS.includes(saved.count)) s.count = saved.count;
     if ([0, ...TIME_OPTIONS].includes(saved.time)) s.time = saved.time;
     if (['mix', 'en', 'es'].includes(saved.dir)) s.dir = saved.dir;
-    if (['type', 'quiz'].includes(saved.answer)) s.answer = saved.answer;
+    // los ejercicios marcados (antes se elegía uno solo: "answer" para palabras y "pmode" para expresiones)
+    s.wkinds = validKinds(saved.wkinds || (saved.answer ? [saved.answer] : null), 'words');
+    s.pkinds = validKinds(saved.pkinds || (saved.pmode && saved.pmode !== 'mix' ? [saved.pmode] : null), 'phrases');
+    s.tkinds = validKinds(saved.tkinds, 'texts');
     if (typeof saved.learn === 'boolean') s.learn = saved.learn;
   } catch (e) {}
   return s;
 })();
 const saveSolo = () => local.set('vd_solo', JSON.stringify(soloSettings));
 
+// "en Guion y narrativa + Iluminación", "en 5 temas", "en todas las expresiones"…
 function setsName(st) {
-  const names = st.exam ? 'las palabras del examen' : st.sets.length === ALL_SETS.length ? 'todos los temas' : st.sets.map(k => VOCAB[k].name).join(' + ');
+  const short = name => name.replace(/^\d+ · /, '');
+  const list = (keys, all, nameOf, many, every) => (keys.length === all.length ? every : keys.length > 3 ? `${keys.length} ${many}` : keys.map(k => short(nameOf(k))).join(' + '));
+  if (st.content === 'texts') return `en ${list(st.tsets, ALL_TSETS(), id => textById(id).title, 'textos', 'todos los textos')}`;
+  if (st.content === 'phrases') {
+    const names = list(st.psets, ALL_PSETS, k => PHRASE_SETS[k].name, 'secciones', 'todas las expresiones');
+    return st.hard ? `en tus expresiones difíciles (${names})` : `en ${names}`;
+  }
+  const names = st.exam ? 'las palabras del examen' : list(st.sets, ALL_SETS, k => VOCAB[k].name, 'temas', 'todos los temas');
   return st.hard ? `en tus difíciles (${names})` : `en ${names}`;
 }
 
 // Ajustes con los que se juega la práctica (la lista del examen, en el momento de empezar)
 const soloPlaySettings = () => ({ ...soloSettings, exam: soloSettings.exam && Exam.count ? Exam.keys() : null });
 // Ajustes de una sala nueva: si tienes palabras del examen activadas, se empieza con ellas
-const roomSettings = () => ({ sets: [...ALL_SETS], time: 20, dir: 'mix', answer: 'type', exam: Exam.on ? Exam.keys() : null });
+const roomSettings = () => ({ ...JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), exam: Exam.on ? Exam.keys() : null });
+// "Solo mis difíciles": las palabras, las expresiones o las preguntas de los textos que más fallas
+const keyContent = k => (String(k).startsWith('t:') ? 'texts' : isPhraseKey(k) ? 'phrases' : 'words');
+const hardList = (content = soloSettings.content) => Stats.hardKeys(k => keyContent(k) === content);
 
 // Cambió la lista del examen o si se usa: lo aplica a la práctica y a tu sala
 function examChanged() {
@@ -131,12 +149,37 @@ function act(t, data = {}) {
   else if (net) net.send({ ...data, t });
 }
 
-// ---------- Ajustes (temas / tiempo / idioma) ----------
-// Una casilla por cada tema (bloque) de words.js: si añades temas nuevos, salen solos
-$('settings').querySelector('[data-key="sets"]').innerHTML = ALL_SETS.map(k => `<label class="check-chip">
-  <input type="checkbox" value="${esc(k)}"><span class="cbox"></span>
-  <span class="ctext">${esc(VOCAB[k].name)} <small>${countWords(k)}</small></span></label>`).join('')
-  + (ALL_SETS.length > 1 ? '<button type="button" class="check-all">✓ Todos</button>' : '');
+// ---------- Ajustes (qué practicar / temas / preguntas / tiempo / ejercicio / idioma) ----------
+// Una casilla por cada tema (bloque) de words.js, por grupos: si añades temas nuevos, salen solos
+const chipHTML = (value, name, n = '', title = '') => `<label class="check-chip"${title ? ` title="${esc(title)}"` : ''}>
+  <input type="checkbox" value="${esc(value)}"><span class="cbox"></span>
+  <span class="ctext">${esc(name)}${n !== '' ? ` <small>${n}</small>` : ''}</span></label>`;
+// Casillas por grupos que se abren y se cierran (si solo hay un grupo, sin cabecera)
+const groupedChecks = (groups, allLabel) => (groups.length > 1 ? groups.map(g => `<div class="check-group">
+    <div class="cg-head">
+      <button type="button" class="cg-toggle"><span class="cg-arrow">▸</span><b>${esc(g.name)}</b><small class="cg-count"></small></button>
+      <span class="cg-btns"><button type="button" class="btn-mini cg-all">✓ Todos</button><button type="button" class="btn-mini cg-none">✕ Ninguno</button></span>
+    </div>
+    <div class="cg-body">${g.chips.join('')}</div>
+  </div>`).join('') : groups.flatMap(g => g.chips).join('')) + `<button type="button" class="check-all">✓ ${allLabel}</button>`;
+const settingsBox = $('settings');
+settingsBox.querySelector('[data-key="sets"]').innerHTML = groupedChecks(GROUPS.map(g => ({
+  name: g, chips: ALL_SETS.filter(k => groupOf(k) === g).map(k => chipHTML(k, VOCAB[k].name, countWords(k))),
+})), 'Todos los temas');
+// Una casilla por cada sección de expresiones (phrases.js) y por cada texto (texts.js)
+settingsBox.querySelector('[data-key="psets"]').innerHTML = groupedChecks([{ name: '', chips: ALL_PSETS.map(k => chipHTML(k, PHRASE_SETS[k].name, countPhrases([k]))) }], 'Todas las secciones');
+settingsBox.querySelector('[data-key="tsets"]').innerHTML = groupedChecks([
+  { name: '📝 Textos tipo examen', chips: allTexts().filter(t => t.group === 'exam').map(t => chipHTML(t.id, `${t.icon} ${t.title}`, '', t.es)) },
+  { name: '🎭 Diálogos de las conversaciones', chips: allTexts().filter(t => t.group === 'convo').map(t => chipHTML(t.id, `${t.icon} ${t.title}`, '', t.es)) },
+], 'Todos los textos');
+// Los ejercicios de cada cosa (kinds.js), con su explicación
+for (const [key, content] of [['wkinds', 'words'], ['pkinds', 'phrases'], ['tkinds', 'texts']]) {
+  const box = settingsBox.querySelector(`[data-key="${key}"]`);
+  box.innerHTML = KINDS[content].map(k => chipHTML(k.id, `${k.icon} ${k.name}`, k.voice ? '🔊' : '', k.desc)).join('')
+    + '<button type="button" class="check-all">✓ Todos (mezclados)</button>';
+  box.insertAdjacentHTML('afterend', `<details class="kinds-help"><summary>❓ ¿Qué es cada ejercicio?</summary><ul>
+    ${KINDS[content].map(k => `<li><b>${k.icon} ${esc(k.name)}</b>: ${esc(k.desc)}${k.voice ? ' <small>(necesita voz en inglés)</small>' : ''}</li>`).join('')}</ul></details>`);
+}
 $('settings').querySelector('[data-key="sets"]').insertAdjacentHTML('afterend', `<div class="exam-row">
   <label class="check-chip exam-chip"><input type="checkbox" value="exam"><span class="cbox"></span>
   <span class="ctext">📝 Solo las del examen <small></small></span></label>
@@ -151,28 +194,45 @@ function cloneSettings(id, slotId) {
 cloneSettings('pSettings', 'pSettingsSlot');
 const sBox = cloneSettings('sSettings', 'sSettingsSlot');
 sBox.querySelector('[data-key="time"]').insertAdjacentHTML('beforeend', '<button type="button" data-val="0">Sin límite</button>');
-sBox.insertAdjacentHTML('afterbegin', `<div class="setting">
+sBox.querySelector('.setting').insertAdjacentHTML('afterend', `<div class="setting">
   <span class="label">Modo</span>
   <div class="seg" data-key="learn">
     <button type="button" data-val="true">🧠 Aprender <small>(te explica los fallos y los repasa)</small></button>
     <button type="button" data-val="false">🎯 Normal</button>
   </div></div>`);
-sBox.querySelector('[data-key="sets"]').insertAdjacentHTML('afterend', `<label class="check-chip hard-chip" id="hardChip">
+sBox.querySelector('[data-for="texts"]').insertAdjacentHTML('afterend', `<label class="check-chip hard-chip" id="hardChip">
   <input type="checkbox" value="hard" id="hardChk"><span class="cbox"></span>
   <span class="ctext">🧠 Solo mis difíciles <small></small></span></label>`);
 
-// Ajustes de la práctica, con "Solo mis difíciles" (las palabras que más fallas)
+// Ajustes de la práctica, con "Solo mis difíciles" (las palabras o expresiones que más fallas)
 function paintSolo() {
-  const n = Stats.hardKeys().length;
+  const n = hardList().length;
   if (!n) soloSettings.hard = false;
   paintSettings($('sSettings'), soloSettings, true);
   $('hardChk').disabled = !n;
   $('hardChip').classList.toggle('disabled', !n);
   $('hardChip').querySelector('small').textContent = n;
-  $('hardChip').title = n ? 'Solo las palabras que más fallas de los temas marcados' : 'Juega un poco y aquí saldrán las palabras que más te cuestan';
+  const what = { words: 'las palabras', phrases: 'las expresiones', texts: 'las preguntas' }[soloSettings.content];
+  $('hardChip').title = n ? `Solo ${what} que más fallas` : 'Juega un poco y aquí saldrán las que más te cuestan';
+  const titles = {
+    words: ['🎯 Práctica de palabras', 'Tú solo y sin prisas. Al final puedes repetir las que falles.'],
+    phrases: ['💬 Práctica de expresiones', 'Las frases de rodaje del PDF: ordénalas, complétalas, tradúcelas o escúchalas.'],
+    texts: ['📝 Práctica de textos', 'Listening y reading como en el examen: huecos, preguntas, verdadero o falso…'],
+  }[soloSettings.content];
+  $('soloTitle').textContent = titles[0];
+  $('soloSub').textContent = titles[1];
+  const st = soloPlaySettings();
+  const total = poolCount(st), count = settingsCount(st);
+  $('soloInfo').textContent = soloSettings.hard ? `🧠 Solo ${what} que más te cuestan`
+    : count < total ? `🎲 ${count} ${unitName(st, count)} al azar de ${total}` : `${count} ${unitName(st, count)}`;
 }
 
-// Casillas de temas: al menos uno marcado siempre
+// Todos los valores de cada grupo de casillas, y el aviso si se intentan desmarcar todas
+const allValues = key => ({ sets: ALL_SETS, psets: ALL_PSETS, tsets: ALL_TSETS(), wkinds: kindIds('words'), pkinds: kindIds('phrases'), tkinds: kindIds('texts') }[key]);
+const EMPTY_MSG = { sets: 'Marca al menos un tema', psets: 'Marca al menos una sección', tsets: 'Marca al menos un texto' };
+const emptyMsg = key => EMPTY_MSG[key] || 'Marca al menos un ejercicio';
+
+// Casillas de temas, secciones, textos y ejercicios: al menos una marcada siempre
 function watchChecks(box, apply) {
   box.addEventListener('change', e => {
     const inp = e.target.closest('input[type="checkbox"]');
@@ -183,12 +243,35 @@ function watchChecks(box, apply) {
       Exam.on = inp.checked;
       return apply({ exam: inp.checked });
     }
-    const sets = [...box.querySelectorAll('.checks input:checked')].map(i => i.value);
-    if (!sets.length) { inp.checked = true; return toast('Marca al menos un tema'); }
-    apply({ sets });
+    const wrap = inp.closest('.checks');
+    const key = wrap.dataset.key; // sets, psets, tsets o los ejercicios (wkinds, pkinds, tkinds)
+    const list = [...wrap.querySelectorAll('input:checked')].map(i => i.value);
+    if (!list.length) { inp.checked = true; return toast(emptyMsg(key)); }
+    apply({ [key]: list });
   });
   box.addEventListener('click', e => {
-    if (e.target.closest('.check-all')) apply({ sets: [...ALL_SETS] });
+    const toggle = e.target.closest('.cg-toggle'); // abrir o cerrar un grupo de temas
+    if (toggle) {
+      const g = toggle.closest('.check-group');
+      g.dataset.touched = '1';
+      g.classList.toggle('open');
+      return;
+    }
+    const all = e.target.closest('.check-all');
+    if (all && !all.disabled) {
+      const key = all.closest('.checks').dataset.key;
+      return apply({ [key]: [...allValues(key)] });
+    }
+    const group = e.target.closest('.cg-all, .cg-none'); // todos / ninguno de un grupo
+    if (group && !group.disabled) {
+      const wrap = group.closest('.checks');
+      const key = wrap.dataset.key;
+      const keys = [...group.closest('.check-group').querySelectorAll('.cg-body input')].map(i => i.value);
+      const now = [...wrap.querySelectorAll('input:checked')].map(i => i.value);
+      const next = group.classList.contains('cg-all') ? [...now, ...keys] : now.filter(k => !keys.includes(k));
+      if (!next.length) return toast(emptyMsg(key));
+      return apply({ [key]: allValues(key).filter(k => next.includes(k)) });
+    }
     if (e.target.closest('.exam-edit')) openExam();
   });
 }
@@ -207,18 +290,23 @@ function readSetting(e) {
   if (!b || b.disabled) return null;
   const key = b.parentElement.dataset.key;
   const v = b.dataset.val;
-  return { [key]: key === 'time' ? Number(v) : v === 'true' ? true : v === 'false' ? false : v };
+  return { [key]: key === 'time' || key === 'count' ? Number(v) : v === 'true' ? true : v === 'false' ? false : v };
 }
+// Las frases y los textos llevan más tiempo: al pasar a expresiones o textos, mínimo 30 s por pregunta
+const morePhraseTime = (patch, st) => {
+  if ((patch.content === 'phrases' || patch.content === 'texts') && st.time && st.time < 30) patch.time = 30;
+  return patch;
+};
 const hostSettings = e => {
   const patch = readSetting(e);
-  if (patch && role === 'host' && host) host.setSettings(patch);
+  if (patch && role === 'host' && host) host.setSettings(morePhraseTime(patch, host.settings));
 };
 $('settings').onclick = hostSettings;
 $('pSettings').onclick = hostSettings;
 $('sSettings').onclick = e => {
   const patch = readSetting(e);
   if (!patch) return;
-  Object.assign(soloSettings, patch);
+  Object.assign(soloSettings, morePhraseTime(patch, soloSettings));
   saveSolo();
   paintSolo();
 };
@@ -351,32 +439,39 @@ function stopSolo() {
   $('reactBar').classList.add('hidden');
 }
 
-// Solo las palabras que más fallas, de los temas marcados
+// Solo las palabras (o expresiones) que más fallas, de lo que tengas marcado
 function hardDeck() {
-  const keys = new Set(Stats.hardKeys());
-  return deckFor(soloPlaySettings()).filter(d => keys.has(wordKey(d.from, d.prompt, d.answer)));
+  const keys = new Set(hardList());
+  const deck = deckFor(soloPlaySettings(), true).filter(d => keys.has(d.key));
+  return soloSettings.count > 0 ? deck.slice(0, soloSettings.count) : deck;
 }
 
 function startSolo(deck = null) {
   readProfile();
   Sound.unlock();
-  const listKey = soloSettings.exam && Exam.count ? 'examen' : [...soloSettings.sets].sort().join('+');
-  soloRun = { key: (soloSettings.hard ? 'hard:' : '') + listKey, name: setsName({ ...soloSettings, exam: soloSettings.exam && Exam.count }), retry: !!deck };
-  if (!deck && soloSettings.hard) {
+  const st = soloSettings, content = st.content;
+  const kindsKey = { words: 'wkinds', phrases: 'pkinds', texts: 'tkinds' }[content];
+  const kinds = validKinds(st[kindsKey], content);
+  if (!canSpeak() && kinds.some(k => kindInfo(content, k).voice)) toast('Este navegador no tiene voz en inglés: los ejercicios de escuchar se cambian por otros');
+  // los récords son de cada lista con sus ejercicios
+  const lists = { words: st.exam && Exam.count ? 'examen' : [...st.sets].sort().join('+'), phrases: [...st.psets].sort().join('+'), texts: [...st.tsets].sort().join('+') };
+  soloRun = { key: `${st.hard ? 'hard:' : ''}${content}:${[...kinds].sort().join('+')}:${lists[content]}`, name: setsName({ ...st, exam: st.exam && Exam.count }), retry: !!deck };
+  if (!deck && st.hard) {
     deck = hardDeck();
-    if (!deck.length) return toast('No tienes palabras difíciles en esos temas. ¡Juega un poco primero!');
+    if (!deck.length) return toast(`No tienes ${{ words: 'palabras difíciles en esos temas', phrases: 'expresiones difíciles en esas secciones', texts: 'preguntas difíciles en esos textos' }[content]}. ¡Juega un poco primero!`);
   }
   stopSolo();
   role = 'solo';
   host = new HostGame('', me, () => {}, applyState, 'solo', soloPlaySettings());
   host.start(deck);
-  if (!S) { stopSolo(); showSoloSetup(); toast('No hay palabras en esa lista'); }
+  if (!S) { stopSolo(); showSoloSetup(); toast('No hay preguntas con esos ajustes: prueba a marcar más temas o ejercicios'); }
 }
 
-const wordKey = (from, prompt, answer) => (from === 'en' ? prompt + '|' + answer : answer + '|' + prompt);
+// "Repetir fallos": todas las que fallaste (sin límite de preguntas)
 function failedDeck() {
-  const fails = new Set((S.history || []).filter(h => !(h.results[me.id] || {}).ok).map(h => wordKey(h.from, h.prompt, h.answer)));
-  return deckFor({ ...soloSettings, exam: null, sets: [...ALL_SETS] }).filter(d => fails.has(wordKey(d.from, d.prompt, d.answer)));
+  const fails = new Set((S.history || []).filter(h => !(h.results[me.id] || {}).ok).map(h => h.key));
+  const st = { ...soloSettings, exam: null, hard: false, sets: [...ALL_SETS], psets: [...ALL_PSETS] };
+  return deckFor(st, true).filter(d => fails.has(d.key));
 }
 
 // ---------- Unirse a una sala ----------
@@ -471,6 +566,8 @@ function onGuestMessage(msg) {
 
 // ---------- Salir ----------
 function leaveRoom(notify = true) {
+  Talk.stop();
+  ExamMode.stop();
   clearInterval(guestTimer);
   guestTimer = null;
   autoStart = false;
@@ -497,6 +594,7 @@ function leaveRoom(notify = true) {
   $('reactBar').classList.add('hidden');
   $('netStatus').classList.add('hidden');
   setHomeBusy(false);
+  renderDash();
   showScreen('home');
 }
 
@@ -539,7 +637,16 @@ function share() {
 }
 
 // ---------- Eventos ----------
-$('soloBtn').onclick = () => { readProfile(); showSoloSetup(); };
+function openPractice(content) {
+  readProfile();
+  Object.assign(soloSettings, morePhraseTime({ content }, soloSettings));
+  saveSolo();
+  showSoloSetup();
+}
+$('soloBtn').onclick = () => openPractice('words');
+$('phrasesBtn').onclick = () => openPractice('phrases');
+$('talkBtn').onclick = () => { readProfile(); Sound.unlock(); Talk.list(); showScreen('talks'); };
+$('examModeBtn').onclick = () => { readProfile(); Sound.unlock(); ExamMode.list(); showScreen('exams'); };
 $('createBtn').onclick = () => { readProfile(); $('duelModal').classList.remove('hidden'); };
 $('duelFriendBtn').onclick = () => { $('duelModal').classList.add('hidden'); createRoom('duel'); };
 $('duelRandomBtn').onclick = searchRandom;
@@ -588,13 +695,69 @@ document.addEventListener('keydown', e => { // modo quiz: teclas 1-4
   if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
   submitChoice(Number(e.key) - 1);
 });
+// Ordenar la frase (o las letras): tocas las fichas en orden (y las quitas tocándolas otra vez)
+const sendOrder = () => {
+  if (S && S.q && S.q.chips && orderPicked.length) submitAnswer(orderPicked.map(i => S.q.chips[i]).join(S.q.kind === 'anagram' ? '' : ' '));
+};
+// Parejas: tocas una de la izquierda y luego la de la derecha que va con ella
+$('matchLeft').onclick = e => {
+  const b = e.target.closest('[data-ml]');
+  if (!b || b.disabled) return;
+  matchSel = Number(b.dataset.ml); // tocarla siempre la elige (aunque ya estuviera elegida)
+  render();
+};
+$('matchRight').onclick = e => {
+  const b = e.target.closest('[data-mr]');
+  if (!b || b.disabled || !S || !S.q || !S.q.left) return;
+  const j = Number(b.dataset.mr);
+  const n = S.q.left.length;
+  if (matchSel < 0) { // sin elegir: si ya estaba unida, se suelta
+    const owner = matchPairs.indexOf(j);
+    if (owner >= 0) matchPairs[owner] = -1;
+    return render();
+  }
+  for (let i = 0; i < n; i++) if (matchPairs[i] === j) matchPairs[i] = -1;
+  matchPairs[matchSel] = j;
+  Sound.tick();
+  const next = Array.from({ length: n }, (_, i) => (matchSel + 1 + i) % n).find(i => !(matchPairs[i] >= 0));
+  matchSel = next === undefined ? -1 : next;
+  render();
+};
+$('matchReset').onclick = () => { matchPairs = []; matchSel = 0; render(); };
+$('matchSend').onclick = () => {
+  if (S && S.q && S.q.left && S.q.left.every((_, i) => matchPairs[i] >= 0)) submitAnswer(S.q.left.map((_, i) => matchPairs[i]).join(','));
+};
+$('orderBank').onclick = e => {
+  const b = e.target.closest('[data-pick]');
+  if (!b || b.disabled) return;
+  orderPicked.push(Number(b.dataset.pick));
+  Sound.tick();
+  render();
+};
+$('orderBuilt').onclick = e => {
+  const b = e.target.closest('[data-unpick]');
+  if (!b || b.disabled) return;
+  orderPicked.splice(Number(b.dataset.unpick), 1);
+  render();
+};
+$('orderUndo').onclick = () => { orderPicked.pop(); render(); };
+$('orderSend').onclick = sendOrder;
+document.addEventListener('keydown', e => { // ordenar (palabras o letras): Enter comprueba, Retroceso quita la última
+  if (!S || S.phase !== 'question' || !S.q || inputOf(S.q.kind) !== 'order' || $('orderSend').disabled) return;
+  if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+  if (e.key === 'Enter') { e.preventDefault(); sendOrder(); }
+  else if (e.key === 'Backspace') { e.preventDefault(); orderPicked.pop(); render(); }
+});
+// Dictado: volver a escuchar la frase (normal o más despacio)
+$('listenBtn').onclick = () => { if (S && S.q && S.q.say) Teach.speak(S.q.say, 'en'); };
+$('listenSlowBtn').onclick = () => { if (S && S.q && S.q.say) Teach.speak(S.q.say, 'en', { rate: 0.6 }); };
 $('editBtn').onclick = editAnswer;
-// Modo aprender: comprueba la palabra reescrita y, si está bien, sigue
+// Modo aprender: comprueba la palabra (o frase) reescrita y, si está bien, sigue
 function checkRetype() {
   const inp = document.getElementById('retypeInput');
   const card = host && S && host.deck[S.round - 1];
   if (!inp || !card) return;
-  if (checkMulti(inp.value, card.accepted)) {
+  if (checkCard(card, inp.value)) {
     Sound.correct();
     host.revealAt = 0;
     host.skipReveal();
@@ -607,7 +770,7 @@ function checkRetype() {
 }
 $('revealBox').onclick = e => {
   const say = e.target.closest('[data-say]');
-  if (say) return Teach.speak(say.dataset.text, say.dataset.say);
+  if (say) return Teach.speak(say.dataset.text, say.dataset.say, { rate: Number(say.dataset.rate) || 0 });
   if (e.target.closest('[data-retype]')) return checkRetype();
   if (e.target.closest('[data-next]') && host) host.skipReveal();
 };
@@ -649,6 +812,15 @@ $('musicBtn').onclick = () => { Sound.unlock(); openMusic(); };
 $('musicClose').onclick = closeMusic;
 $('musicModal').onclick = e => { if (e.target === $('musicModal')) closeMusic(); };
 $('musicToggle').onclick = () => { Sound.unlock(); Music.toggle(); paintMusicBtn(); renderMusicPanel(); };
+$('voiceSelect').onchange = e => { Voice.setVoice(e.target.value); Voice.speak('Quiet on set, please.', 'en'); };
+$('voiceTest').onclick = () => Voice.speak("Quiet on set, please. We're going live in two minutes.", 'en');
+$('voiceRate').onclick = e => {
+  const b = e.target.closest('[data-rate]');
+  if (!b) return;
+  Voice.setRate(Number(b.dataset.rate));
+  renderVoicePanel();
+  Voice.speak('Stand by. Rolling. And... action!', 'en');
+};
 $('ytForm').onsubmit = e => { e.preventDefault(); setYoutube($('ytInput').value); };
 $('ytClear').onclick = clearYoutube;
 $('ytTap').onclick = () => YTMusic.play();
@@ -716,6 +888,12 @@ $('examList').addEventListener('change', e => {
   if (inp) { Exam.set(inp.dataset.key, inp.checked); renderExam(); }
 });
 $('examList').addEventListener('click', e => {
+  const toggle = e.target.closest('[data-toggle]'); // abrir o cerrar un tema
+  if (toggle) {
+    const cat = toggle.dataset.toggle;
+    if (examOpen.has(cat)) examOpen.delete(cat); else examOpen.add(cat);
+    return renderExam();
+  }
   const all = e.target.closest('[data-all]'), none = e.target.closest('[data-none]');
   if (!all && !none) return;
   const cat = (all || none).dataset[all ? 'all' : 'none'];
@@ -731,6 +909,7 @@ $('examImportAdd').onclick = () => applyExamImport(false);
 $('examImportCancel').onclick = () => { examImport = null; $('examImportBox').classList.add('hidden'); };
 $('examPractice').onclick = () => {
   closeExam();
+  soloSettings.content = 'words';
   soloSettings.exam = true;
   soloSettings.hard = false;
   saveSolo();
@@ -740,33 +919,44 @@ $('examPractice').onclick = () => {
 };
 renderExam();
 
-// Lista de palabras
-$('homeWordsBtn').textContent = `📖 Ver todas las palabras (${WORDS.length})`;
+// Lista de palabras y expresiones
+$('homeWordsBtn').textContent = `📖 Palabras (${WORDS.length}) y expresiones (${PHRASES.length})`;
 document.querySelectorAll('.words-open').forEach(b => { b.onclick = openWords; });
 $('wordsClose').onclick = closeWords;
 $('wordsModal').onclick = e => { if (e.target === $('wordsModal')) closeWords(); };
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeWords(); });
 $('wordsSearch').oninput = e => { wordsView.q = e.target.value; renderWords(); };
-$('wordsCats').onclick = e => {
-  const b = e.target.closest('[data-cat]');
-  if (b) { wordsView.cat = b.dataset.cat; wordsView.shown.clear(); renderWords(); }
+$('wordsTabs').onclick = e => {
+  const b = e.target.closest('[data-tab]');
+  if (!b || b.dataset.tab === wordsView.tab) return;
+  wordsView.tab = b.dataset.tab;
+  wordsView.cat = 'all';
+  wordsView.shown.clear();
+  renderWords();
 };
+$('wordsCat').onchange = e => { wordsView.cat = e.target.value; wordsView.shown.clear(); renderWords(); };
 $('wordsHide').onclick = e => {
   const b = e.target.closest('[data-hide]');
   if (b) { wordsView.hide = b.dataset.hide; wordsView.shown.clear(); renderWords(); }
 };
-$('wordsList').onclick = e => { // destapa solo esa palabra
-  const c = e.target.closest('[data-reveal]');
+$('wordsList').onclick = e => {
+  const say = e.target.closest('[data-say]'); // 🔊 escuchar la frase
+  if (say) return Teach.speak(say.dataset.text, say.dataset.say);
+  const c = e.target.closest('[data-reveal]'); // destapa solo esa palabra
   if (!c) return;
   const i = Number(c.dataset.reveal);
   wordsView.shown.add(i);
   c.classList.remove('covered');
   c.removeAttribute('data-reveal');
-  c.innerHTML = wordCellHTML(WORDS[i][wordsView.hide]);
+  c.innerHTML = wordsCellInner(i, wordsView.hide);
 };
 $('wordsPractice').onclick = () => {
+  const phrases = wordsView.tab === 'phrases';
+  soloSettings.content = phrases ? 'phrases' : 'words';
   soloSettings.hard = wordsView.cat === 'hard';
-  soloSettings.sets = ALL_SETS.includes(wordsView.cat) ? [wordsView.cat] : [...ALL_SETS];
+  if (phrases) soloSettings.psets = ALL_PSETS.includes(wordsView.cat) ? [wordsView.cat] : [...ALL_PSETS];
+  else soloSettings.sets = ALL_SETS.includes(wordsView.cat) ? [wordsView.cat] : [...ALL_SETS];
+  morePhraseTime(soloSettings, soloSettings);
   saveSolo();
   closeWords();
   stopSolo();
@@ -775,6 +965,22 @@ $('wordsPractice').onclick = () => {
 };
 $('muteBtn').textContent = Sound.muted ? '🔇' : '🔊';
 $('muteBtn').onclick = () => { $('muteBtn').textContent = Sound.toggle() ? '🔇' : '🔊'; };
+
+// Tema claro («Plató») u oscuro («Sala de control»)
+function paintThemeBtn() {
+  const dark = document.documentElement.dataset.theme === 'dark';
+  $('themeBtn').textContent = dark ? '☀️' : '🌙';
+  $('themeBtn').title = dark ? 'Cambiar a modo claro («Plató»)' : 'Cambiar a modo oscuro («Sala de control»)';
+}
+$('themeBtn').onclick = () => {
+  const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = theme;
+  local.set('vd_theme', theme);
+  paintThemeBtn();
+};
+paintThemeBtn();
+fillTicker();
+renderDash();
 
 window.addEventListener('beforeunload', e => {
   const playing = S && S.phase !== 'lobby' && S.phase !== 'end';

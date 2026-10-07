@@ -2,22 +2,43 @@
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
+// Lo marcado en cada grupo de casillas (los ejercicios, con los de siempre si no hay nada guardado)
+const KIND_CONTENT = { wkinds: 'words', pkinds: 'phrases', tkinds: 'texts' };
+const checkedOf = (settings, key) => (KIND_CONTENT[key] ? validKinds(settings[key], KIND_CONTENT[key]) : settings[key] || []);
+// Ejercicios en los que importa en qué idioma sale la pregunta
+const DIR_KINDS = { words: ['type', 'quiz', 'first', 'tf', 'match'], phrases: ['quiz', 'type', 'tf'], texts: [] };
+
 function paintSettings(box, settings, editable) {
+  const content = CONTENTS.includes(settings.content) ? settings.content : 'words';
   for (const seg of box.querySelectorAll('.seg')) {
     for (const btn of seg.children) {
       btn.classList.toggle('on', String(settings[seg.dataset.key]) === btn.dataset.val);
       btn.disabled = !editable;
     }
   }
-  const sets = settings.sets || [];
   // en la sala "exam" es la lista del anfitrión; en la práctica, sí/no (y se usa tu lista)
-  const examN = Array.isArray(settings.exam) ? settings.exam.length : settings.exam ? Exam.count : 0;
+  const examList = Array.isArray(settings.exam) ? settings.exam : settings.exam && Exam.count ? Exam.keys() : null;
+  const examN = examList ? examList.length : 0;
   for (const inp of box.querySelectorAll('input[type="checkbox"]')) {
     if (inp.value === 'hard') inp.checked = !!settings.hard;
     else if (inp.value === 'exam') inp.checked = examN > 0;
-    else inp.checked = sets.includes(inp.value);
+    else inp.checked = checkedOf(settings, inp.closest('.checks').dataset.key).includes(inp.value);
     inp.disabled = !editable;
     inp.closest('.check-chip').classList.toggle('on', inp.checked);
+  }
+  // grupos: cuántos hay marcados; se abren solos si hay unos sí y otros no
+  for (const g of box.querySelectorAll('.check-group')) {
+    const key = g.closest('.checks').dataset.key;
+    const keys = [...g.querySelectorAll('.cg-body input')].map(i => i.value);
+    const on = keys.filter(k => checkedOf(settings, key).includes(k));
+    g.querySelector('.cg-count').textContent = key === 'sets'
+      ? `${on.length} de ${keys.length} temas · ${plural(on.reduce((s, k) => s + countWords(k), 0), 'palabra', 'palabras')}`
+      : `${on.length} de ${keys.length}`;
+    if (!g.dataset.touched) g.classList.toggle('open', keys.length <= 3 || (on.length > 0 && on.length < keys.length));
+    g.classList.toggle('none', !on.length);
+    for (const b of g.querySelectorAll('.cg-btns button')) b.disabled = !editable;
+    g.querySelector('.cg-all').classList.toggle('hidden', on.length === keys.length);
+    g.querySelector('.cg-none').classList.toggle('hidden', !on.length);
   }
   const examChip = box.querySelector('.exam-chip');
   if (examChip) {
@@ -26,9 +47,18 @@ function paintSettings(box, settings, editable) {
   }
   box.classList.toggle('exam-on', examN > 0);
   for (const b of box.querySelectorAll('.check-all')) {
+    const key = b.closest('.checks').dataset.key;
     b.disabled = !editable;
-    b.classList.toggle('hidden', sets.length === ALL_SETS.length);
+    b.classList.toggle('hidden', checkedOf(settings, key).length === allValues(key).length);
   }
+  // filas de palabras, de expresiones o de textos, según lo que se practique
+  for (const row of box.querySelectorAll('[data-for]')) row.classList.toggle('hidden', row.dataset.for !== content);
+  const kinds = checkedOf(settings, { words: 'wkinds', phrases: 'pkinds', texts: 'tkinds' }[content]);
+  const dirRow = box.querySelector('[data-dir]');
+  dirRow.classList.toggle('hidden', !kinds.some(k => DIR_KINDS[content].includes(k)));
+  dirRow.querySelector('.dir-label').textContent = content === 'phrases' ? 'La frase sale en…' : 'La palabra sale en…';
+  const total = poolCount({ ...settings, exam: examList });
+  box.querySelector('.count-note').textContent = `· al azar entre ${total} ${unitName(settings, total)}`;
   box.classList.toggle('readonly', !editable);
 }
 
@@ -57,7 +87,7 @@ function renderPartyLobby() {
   $('pStartBtn').classList.toggle('hidden', !isHost);
   const n = settingsCount(S.settings);
   $('pLobbyMsg').textContent = !isHost ? 'Esperando a que el anfitrión empiece la partida…'
-    : S.players.length > 1 ? `${S.players.length} jugadores · ${n} palabras · ¡Cuando quieras!`
+    : S.players.length > 1 ? `${S.players.length} jugadores · ${n} ${unitName(S.settings, n)} · ¡Cuando quieras!`
       : 'Comparte el código o el enlace. Podéis jugar de 1 a 40 personas.';
 }
 
@@ -110,8 +140,9 @@ function answersHTML(results) {
   for (const p of S.players) {
     const res = results[p.id];
     if (!res) continue; // entró a mitad de la palabra
-    const key = res.text ? (res.ok ? 'ok:' : 'bad:') + norm(res.text) : 'none';
-    if (!groups.has(key)) groups.set(key, { text: res.text, ok: res.ok, who: [] });
+    const shown = answerText(res, S.reveal && S.reveal.kind);
+    const key = res.text ? (res.ok ? 'ok:' : 'bad:') + norm(shown) : 'none';
+    if (!groups.has(key)) groups.set(key, { text: shown, ok: res.ok, who: [] });
     groups.get(key).who.push(p);
   }
   const rank = g => (g.ok ? 0 : g.text ? 1 : 2);
@@ -141,8 +172,7 @@ function partyRevealHTML() {
   const fastest = S.players
     .filter(p => (r.results[p.id] || {}).ok && r.results[p.id].ms != null)
     .sort((a, b) => r.results[a.id].ms - r.results[b.id].ms)[0];
-  return `${splashHTML(r.results[me.id])}
-    <div class="sol-label">Respuesta correcta</div><div class="sol">${esc(r.answer)}</div>${revealAlsoHTML(r)}
+  return `${splashHTML(r.results[me.id])}${solHTML(r)}
     ${answersHTML(r.results)}
     ${partyPositionHTML(ranked)}
     ${fastest ? `<div class="fast">⚡ El más rápido: ${esc(fastest.avatar)} <b>${esc(fastest.name)}</b> · ${secs(r.results[fastest.id].ms)}</div>` : ''}
@@ -193,51 +223,75 @@ function renderPartyEnd() {
   reviewKey = key;
   $('peReview').innerHTML = hist.map((h, i) => {
     const res = myLog[i + 1];
-    const mineTxt = res ? `${res.ok ? '✓' : '✗'} ${res.text ? esc(res.text) : '—'}` : '—';
+    const mineTxt = res ? `${res.ok ? '✓' : '✗'} ${res.text ? esc(answerText(res, h.kind)) : '—'}` : '—';
     const all = roundLog[i + 1];
     const others = all ? S.players.filter(p => p.id !== me.id && all[p.id]).map(p => {
       const x = all[p.id];
-      return `<span class="${x.ok ? 'ok' : 'bad'}">${esc(p.avatar)} ${esc(p.name)}: ${x.text ? esc(x.text) : '—'} ${x.ok ? '✓' : '✗'}</span>`;
+      return `<span class="${x.ok ? 'ok' : 'bad'}">${esc(p.avatar)} ${esc(p.name)}: ${x.text ? esc(answerText(x, h.kind)) : '—'} ${x.ok ? '✓' : '✗'}</span>`;
     }).join('') : '';
     return `<div class="rv">
-      <div class="rv-q">${i + 1}. ${LANG[h.from]} ${esc(h.prompt)} <span class="arrow">→</span> ${LANG[otherLang(h.from)]} ${esc(h.answer)}</div>
+      <div class="rv-q">${i + 1}. ${LANG[h.from]} ${esc(h.prompt)} <span class="arrow">→</span> ${LANG[h.to || otherLang(h.from)]} ${esc(h.answer)}</div>
       <div class="rv-a ${res && res.ok ? 'ok' : 'bad'}">Tú: ${mineTxt}</div>
       <div class="rv-a">👥 ${h.ok} de ${h.n} acertaron</div>
       ${others ? `<div class="rv-others">${others}</div>` : ''}</div>`;
   }).join('');
 }
 
-// ---------- Lista de palabras ----------
-const wordsView = { cat: 'all', hide: '', q: '', shown: new Set() };
+// ---------- Lista de palabras y expresiones ----------
+const wordsView = { tab: 'words', cat: 'all', hide: '', q: '', shown: new Set() };
 
 function wordCellHTML(side) {
   return `<b>${esc(side.label)}</b>${side.extra.length ? `<small>También vale: ${side.extra.map(esc).join(', ')}</small>` : ''}`;
 }
 
+// Contenido de una casilla de la lista (palabra o expresión, en inglés o en español)
+function wordsCellInner(i, lang) {
+  if (wordsView.tab === 'words') return wordCellHTML(WORDS[i][lang]);
+  const p = PHRASES[i];
+  const say = lang === 'en' ? p.en : expandPhrase(p.es)[0];
+  return `<button type="button" class="say-btn" data-say="${lang}" data-text="${esc(say)}" title="Escuchar">🔊</button><b>${esc(p[lang])}</b>`;
+}
+
 function renderWords() {
+  const phrases = wordsView.tab === 'phrases';
   const q = stripAccents(norm(wordsView.q));
-  const hard = new Set(Stats.hardKeys());
+  const hard = new Set(Stats.hardKeys(phrases ? isPhraseKey : k => !isPhraseKey(k)));
   if (wordsView.cat === 'hard' && !hard.size) wordsView.cat = 'all';
-  const list = WORDS.map((w, i) => ({ w, i })).filter(({ w }) =>
-    (wordsView.cat === 'all' || w.cat === wordsView.cat || (wordsView.cat === 'hard' && hard.has(wordKeyOf(w)))) &&
-    (!q || [...w.en.forms, ...w.es.forms].some(f => stripAccents(f).includes(q))));
-  const cats = ['all', ...Object.keys(VOCAB), ...(hard.size ? ['hard'] : [])];
-  $('wordsCats').innerHTML = cats.map(k => `<button type="button" data-cat="${esc(k)}"${wordsView.cat === k ? ' class="on"' : ''}>
-    ${k === 'all' ? 'Todas' : k === 'hard' ? '🧠 Mis difíciles' : esc(VOCAB[k].name)} <small>(${k === 'hard' ? hard.size : countWords(k)})</small></button>`).join('');
+  const cat = wordsView.cat;
+  for (const b of $('wordsTabs').children) {
+    b.classList.toggle('on', b.dataset.tab === wordsView.tab);
+    b.querySelector('small').textContent = `(${b.dataset.tab === 'phrases' ? PHRASES.length : WORDS.length})`;
+  }
+  // desplegable de temas (o secciones)
+  let opts = `<option value="all">${phrases ? `Todas las expresiones (${PHRASES.length})` : `Todos los temas (${WORDS.length})`}</option>`;
+  if (hard.size) opts += `<option value="hard">🧠 Mis difíciles (${hard.size})</option>`;
+  opts += phrases ? ALL_PSETS.map(k => `<option value="${k}">${esc(PHRASE_SETS[k].name)} (${countPhrases([k])})</option>`).join('')
+    : GROUPS.map(g => `<optgroup label="${esc(g)}">${ALL_SETS.filter(k => groupOf(k) === g)
+      .map(k => `<option value="${k}">${esc(VOCAB[k].name)} (${countWords(k)})</option>`).join('')}</optgroup>`).join('');
+  setHTML($('wordsCat'), opts);
+  $('wordsCat').value = cat;
   for (const b of $('wordsHide').children) b.classList.toggle('on', b.dataset.hide === wordsView.hide);
-  $('wordsCount').textContent = q ? plural(list.length, 'palabra encontrada', 'palabras encontradas') : plural(list.length, 'palabra', 'palabras');
-  const cell = (w, i, lang) => {
-    if (wordsView.hide === lang && !wordsView.shown.has(i)) return `<div class="wcell covered" data-reveal="${i}">👆 Toca para ver</div>`;
-    const bad = lang === 'en' ? Stats.word(wordKeyOf(w)).bad : 0;
-    const lvl = lang === 'en' ? Stats.level(wordKeyOf(w)) : 0;
+  const items = phrases
+    ? PHRASES.map((p, i) => ({ i, cat: p.cat, key: phraseKeyOf(p), text: stripAccents(norm(p.en + ' ' + p.es)) }))
+    : WORDS.map((w, i) => ({ i, cat: w.cat, key: wordKeyOf(w), forms: [...w.en.forms, ...w.es.forms] }));
+  const list = items.filter(it => (cat === 'all' || it.cat === cat || (cat === 'hard' && hard.has(it.key)))
+    && (!q || (phrases ? it.text.includes(q) : it.forms.some(f => stripAccents(f).includes(q)))));
+  const unit = phrases ? ['expresión', 'expresiones'] : ['palabra', 'palabras'];
+  $('wordsCount').textContent = plural(list.length, unit[0], unit[1]) + (q ? (list.length === 1 ? ' encontrada' : ' encontradas') : '');
+  const cell = (it, lang) => {
+    if (wordsView.hide === lang && !wordsView.shown.has(it.i)) return `<div class="wcell covered" data-reveal="${it.i}">👆 Toca para ver</div>`;
+    const bad = lang === 'en' ? Stats.word(it.key).bad : 0;
+    const lvl = lang === 'en' ? Stats.level(it.key) : 0;
     const lvlBadge = lvl ? `<span class="wlevel" title="${['', 'Aprendiendo', 'Casi dominada', 'Dominada'][lvl]}">${['', '🌱', '🌿', '🌳'][lvl]}</span>` : '';
-    return `<div class="wcell">${bad ? `<span class="wbad" title="Veces que la has fallado">❌ ${bad}</span>` : ''}${lvlBadge}${wordCellHTML(w[lang])}</div>`;
+    return `<div class="wcell${phrases ? ' phrase' : ''}">${bad ? `<span class="wbad" title="Veces que la has fallado">❌ ${bad}</span>` : ''}${lvlBadge}${wordsCellInner(it.i, lang)}</div>`;
   };
-  $('wordsList').innerHTML = !list.length ? '<p class="msg">No hay ninguna palabra con esa búsqueda.</p>'
+  $('wordsList').innerHTML = !list.length ? `<p class="msg">No hay ninguna ${unit[0]} con esa búsqueda.</p>`
     : `<div class="wrow whead"><div>${LANG.en} Inglés</div><div>${LANG.es} Español</div></div>`
-      + list.map(({ w, i }) => `<div class="wrow">${cell(w, i, 'en')}${cell(w, i, 'es')}</div>`).join('');
+      + list.map(it => `<div class="wrow">${cell(it, 'en')}${cell(it, 'es')}</div>`).join('');
   $('wordsPractice').classList.toggle('hidden', role === 'host' || role === 'guest'); // en una sala no
-  $('wordsPractice').textContent = `🎯 Practicar ${wordsView.cat === 'all' ? 'todas' : wordsView.cat === 'hard' ? 'mis difíciles' : VOCAB[wordsView.cat].name}`;
+  const name = cat === 'all' ? (phrases ? 'todas las expresiones' : 'todas') : cat === 'hard' ? 'mis difíciles'
+    : (phrases ? PHRASE_SETS[cat].name : VOCAB[cat].name).replace(/^\d+ · /, '');
+  $('wordsPractice').textContent = `${phrases ? '💬' : '🎯'} Practicar ${name}`;
 }
 
 function openWords() {
@@ -271,28 +325,41 @@ function renderSoloBoard() {
 function soloRevealHTML() {
   const r = S.reveal;
   const res = r.results[me.id] || { text: '', ok: 0 };
-  const quiz = typeof r.correct === 'number';
   const card = host && host.deck[S.round - 1];
+  const how = inputOf(r.kind);
+  const typed = how === 'text' || how === 'order'; // se escribe (o se ordena): se puede explicar el fallo
   const learn = !!S.settings.learn;
-  const retype = !res.ok && learn && !quiz; // modo aprender: escríbela bien para seguir
-  const tips = !res.ok && !quiz && card ? Teach.explain(res.text, card) : [];
-  const enWord = S.q.from === 'en' ? S.q.prompt : r.answer;
-  const esWord = S.q.from === 'es' ? S.q.prompt : r.answer;
-  return `${splashHTML(res)}
-    <div class="sol-label">Respuesta correcta</div><div class="sol">${esc(r.answer)}</div>${revealAlsoHTML(r)}
-    <div class="learn-tools">
-      <button type="button" class="btn-mini" data-say="en" data-text="${esc(enWord)}">🔊 ${esc(enWord)}</button>
+  const retype = !res.ok && learn && typed && card; // modo aprender: escríbela bien para seguir
+  const tips = !res.ok && typed && card ? (card.ph ? Teach.explainPhrase(res.text, card) : Teach.explain(res.text, card)) : [];
+  let tools, extra = '';
+  const enText = card && (card.ph || card.tx) ? card.en || card.say || '' : '';
+  if (card && (card.ph || card.tx)) {
+    // frases y textos: escucharla y ver el vocabulario que lleva dentro
+    const vocab = enText ? vocabIn(enText) : [];
+    tools = enText ? `<button type="button" class="btn-mini" data-say="en" data-text="${esc(enText)}">🔊 En inglés</button>
+      <button type="button" class="btn-mini" data-say="en" data-rate="0.6" data-text="${esc(enText)}">🐢 Despacio</button>` : '';
+    if (card.es) tools += `<button type="button" class="btn-mini" data-say="es" data-text="${esc(expandPhrase(card.es)[0])}">🔊 En español</button>`;
+    if (vocab.length) extra += `<div class="vocab-box"><b>📘 Vocabulario de la frase</b>${vocab.map(w => `<span>${esc(w.en.label)} = ${esc(w.es.label)}</span>`).join('')}</div>`;
+  } else {
+    const w = card && wordOf(card.key);
+    const enWord = w ? firstSyn(w.en.label) : S.q.from === 'en' ? S.q.prompt : r.answer;
+    const esWord = w ? w.es.label : S.q.from === 'es' ? S.q.prompt : r.answer;
+    tools = `<button type="button" class="btn-mini" data-say="en" data-text="${esc(enWord)}">🔊 ${esc(enWord)}</button>
       <button type="button" class="btn-mini" data-say="es" data-text="${esc(esWord)}">🔊 ${esc(esWord)}</button>
-      <a class="btn-mini" href="${Teach.dictLink(enWord)}" target="_blank" rel="noopener">📖 Diccionario</a>
-    </div>
+      <a class="btn-mini" href="${Teach.dictLink(enWord)}" target="_blank" rel="noopener">📖 Diccionario</a>`;
+  }
+  const sentence = card && card.ph && !card.full;
+  const typeIt = !card ? '' : sentence ? expandPhrase(card.answer)[0] : card.ph ? card.answer : expandForms([card.answer])[0];
+  return `${splashHTML(res)}${solHTML(r)}${extra}
+    <div class="learn-tools">${tools}</div>
     ${tips.length ? `<div class="tips"><b>💡 Por qué has fallado</b><ul>${tips.map(t => `<li>${t}</li>`).join('')}</ul></div>` : ''}
-    ${!res.ok && res.text && !quiz ? `<div class="also">Tú pusiste: “${esc(res.text)}”</div>` : ''}
+    ${!res.ok && res.text && typed ? `<div class="also">Tú pusiste: “${esc(res.text)}”</div>` : ''}
     ${hintRound === S.round && res.ok ? '<div class="also">💡 Con pista: la repasarás en «Mis difíciles»</div>' : ''}
     ${!res.ok && learn && card && (card.tries || 0) < 2 ? '<div class="also">🔁 Te la volveré a preguntar dentro de poco.</div>' : ''}
     ${retype ? `<div class="retype">
-        <label for="retypeInput">✍️ Escríbela bien para seguir (así se te queda)</label>
+        <label for="retypeInput">✍️ ${sentence ? 'Escribe la frase bien' : 'Escríbela bien'} para seguir (así se te queda)</label>
         <div class="answer-row">
-          <input id="retypeInput" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="${esc(expandForms([r.answer])[0])}">
+          <input id="retypeInput" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" maxlength="150" placeholder="${esc(typeIt)}">
           <button class="btn btn-primary" type="button" data-retype>Comprobar</button>
         </div>
         <button class="btn-link" type="button" data-next>Saltar ▶</button>
@@ -305,7 +372,7 @@ function soloRevealHTML() {
 function soloSummary() {
   const byKey = new Map();
   for (const h of S.history || []) {
-    const k = wordKey(h.from, h.prompt, h.answer);
+    const k = h.key;
     if (!byKey.has(k)) byKey.set(k, { h, tries: [] });
     byKey.get(k).tries.push((h.results[me.id] || {}).ok ? 1 : 0);
   }
@@ -327,7 +394,7 @@ function renderSoloEnd() {
   if (soloRecord.pct) records.push(`🏅 ¡Nuevo récord! Tu mejor resultado ${setName}`);
   if (soloRecord.streak) records.push(`🔥 ¡Récord de racha: ${p.best} seguidas!`);
   const best = soloRun.retry ? null : Stats.bestPct(soloRun.key);
-  const mastered = sum.first.concat(sum.learned).filter(e => Stats.level(wordKey(e.h.from, e.h.prompt, e.h.answer)) === 3).length;
+  const mastered = sum.first.concat(sum.learned).filter(e => Stats.level(e.h.key) === 3).length;
   $('seScore').innerHTML = `<div class="big">${sum.first.length}<small> / ${total}</small></div>
     <div class="detail">${pct}% a la primera · mejor racha 🔥 ${p.best}</div>
     <div class="learn-sum">
@@ -344,10 +411,10 @@ function renderSoloEnd() {
   $('seFails').innerHTML = !missed.length ? '<p class="msg">¡No has fallado ninguna! 🎉</p>'
     : '<span class="label">Para repasar</span>' + missed.map(e => {
       const h = e.h;
-      const wrong = (S.history || []).filter(x => x.prompt === h.prompt && !(x.results[me.id] || {}).ok).map(x => x.results[me.id].text).filter(Boolean);
+      const wrong = (S.history || []).filter(x => x.key === h.key).map(x => x.results[me.id] || {}).filter(r => !r.ok && r.text).map(r => answerText(r, h.kind));
       const learnedIt = e.tries.some(Boolean);
-      return `<div class="fail${learnedIt ? ' learned' : ''}"><div>${LANG[h.from]} <b>${esc(h.prompt)}</b> <span class="arrow">→</span> ${LANG[otherLang(h.from)]} <b class="ok-text">${esc(h.answer)}</b>
+      return `<div class="fail${learnedIt ? ' learned' : ''}"><div>${LANG[h.from]} <b>${esc(h.prompt)}</b> <span class="arrow">→</span> ${LANG[h.to || otherLang(h.from)]} <b class="ok-text">${esc(h.answer)}</b>
         ${learnedIt ? '<span class="tag-learned">🧠 aprendida</span>' : ''}</div>
-        <small>Tú: ${wrong.length ? wrong.map(esc).join(' · ') : '—'}</small></div>`;
+        ${h.sub ? `<small>🇪🇸 ${esc(h.sub)}</small><br>` : ''}<small>Tú: ${wrong.length ? wrong.map(esc).join(' · ') : '—'}</small></div>`;
     }).join('');
 }

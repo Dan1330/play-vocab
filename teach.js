@@ -130,7 +130,8 @@ const Teach = (() => {
   function explain(input, card) {
     const to = card.from === 'en' ? 'es' : 'en';
     const a = norm(input);
-    if (!a) return ['No escribiste nada. Lee la respuesta en voz alta y escríbela para que se te quede.'];
+    if (!a) return [card.kind === 'anagram' ? 'No ordenaste las letras. Lee la respuesta en voz alta y deletréala para que se te quede.'
+      : 'No escribiste nada. Lee la respuesta en voz alta y escríbela para que se te quede.'];
     const same = s => stripAccents(s) === stripAccents(a);
     if (expandForms([card.prompt]).some(same)) return [`Has copiado la palabra que salía. Había que traducirla al <b>${LANG_TXT[to]}</b>.`];
     // ¿Es la traducción de otra palabra de la lista?
@@ -148,21 +149,91 @@ const Teach = (() => {
     return spellingTips(a, best.form, to);
   }
 
-  // Pronunciación con la voz del navegador
-  function speak(text, lang) {
-    if (!window.speechSynthesis) return toast('Tu navegador no puede leer en voz alta');
-    const u = new SpeechSynthesisUtterance(String(text).replace(/\s*\/\s*/g, ', '));
-    u.lang = lang === 'en' ? 'en-GB' : 'es-ES';
-    u.rate = 0.9;
-    const voices = speechSynthesis.getVoices();
-    u.voice = voices.find(v => v.lang === u.lang) || voices.find(v => v.lang.startsWith(lang)) || null;
-    speechSynthesis.cancel();
-    speechSynthesis.speak(u);
+  // ---------- Frases ----------
+  // Trucos de gramática de las expresiones: [si la frase lleva esto, palabras que lo forman, explicación]
+  const GRAMMAR = [
+    [/\blet's\b/i, ['let', 'us', "let's"], '«Let\'s + verbo» sirve para proponer algo al equipo: «Let\'s go» = «Vamos», «Let\'s check» = «Vamos a comprobar».'],
+    [/\bwe need to\b/i, ['need', 'to'], '«We need to + verbo» = «Tenemos que / Necesitamos + verbo».'],
+    [/\bi'll\b/i, ['i', 'will', "i'll"], '«I\'ll + verbo» (= I will) es para decir lo que vas a hacer tú: «I\'ll check» = «Lo compruebo».'],
+    [/^could you\b/i, ['could', 'you'], '«Could you…?» es la forma educada de pedir algo: «¿Podrías…?».'],
+    [/\bthere's\b/i, ['there', 'is', "there's"], '«There\'s» (= there is) significa «hay»: «There\'s too much noise» = «Hay demasiado ruido».'],
+    [/\bwe're\b/i, ['we', 'are', "we're"], '«We\'re» = «We are». En inglés el sujeto (we, you, it…) siempre se dice.'],
+    [/\bdon't\b/i, ['do', 'not', "don't"], 'Para pedir que no se haga algo: «Don\'t + verbo» = «No + verbo».'],
+    [/\bwhat's\b/i, ['what', 'is', "what's"], '«What\'s…?» (= What is) = «¿Cuál es…? / ¿Qué es…?».'],
+    [/\bhow long\b/i, ['how', 'long'], '«How long…?» pregunta cuánto tiempo.'],
+    [/\byou're\b/i, ['you', 'are', "you're"], '«You\'re» = «You are» (estás / eres).'],
+    [/\bthe\b/i, ['the'], 'No te olvides del artículo «the» (el, la, los, las).'],
+  ];
+
+  // Consejos (HTML) para una frase fallada: palabras que faltan o sobran, orden, ortografía y gramática
+  function explainPhrase(input, card) {
+    if (!String(input || '').trim()) return [card.kind === 'order' ? 'No ordenaste nada. Escucha la frase 🔊 y vuelve a montarla para que se te quede.'
+      : 'No escribiste nada. Escucha la frase 🔊 y escríbela para que se te quede.'];
+    if (card.full && !String(card.answer).includes(' ')) { // completar una sola palabra
+      const a = norm(input), b = norm(card.answer);
+      const near = levenshtein(A(stripAccents(a)), A(stripAccents(b))) <= Math.max(2, Math.ceil(A(b).length * 0.45));
+      const f = card.full;
+      return near ? spellingTips(a, b, 'en')
+        : [`La palabra que falta es ${q(card.answer)}: «${esc(f.pre)}<b>${esc(f.word)}</b>${esc(f.post)}».`];
+    }
+    const to = card.to;
+    const aw = phraseWords(input, false).map(w => NO_APOSTROPHE[w] || w);
+    let best = null;
+    for (const t of card.accepted) {
+      const bw = phraseWords(t, false);
+      const d = levenshtein(aw, bw);
+      if (!best || d < best.d) best = { t, bw, d };
+    }
+    const { t: target, bw } = best;
+    // ¿lo escribió en el otro idioma?
+    const other = phraseWords(to === 'en' ? card.es : card.en, false);
+    if (aw.filter(w => other.includes(w) && !bw.includes(w)).length >= Math.max(2, aw.length / 2)) {
+      return [`Eso está en ${LANG_TXT[to === 'en' ? 'es' : 'en']}; aquí había que escribirlo en <b>${LANG_TXT[to]}</b>.`];
+    }
+    const tips = [];
+    const same = (x, y) => stripAccents(x) === stripAccents(y);
+    const missing = [...bw], extra = [];
+    for (const w of aw) {
+      const i = missing.findIndex(x => same(x, w));
+      if (i >= 0) missing.splice(i, 1); else extra.push(w);
+    }
+    const missed = [...missing]; // para los trucos de gramática
+    if (!missing.length && !extra.length && aw.every((w, i) => same(w, bw[i]))) {
+      // las mismas palabras y en orden: el fallo está en las tildes
+      aw.forEach((w, i) => { if (w !== bw[i]) tips.push(...accentTips(w, bw[i]).slice(0, 1)); });
+      if (!tips.length) tips.push(`La frase es: ${q(target)}.`);
+    } else if (!missing.length && !extra.length) {
+      // mismas palabras, otro orden: ¿hay dos seguidas al revés? ("light key" en vez de "key light")
+      const pair = bw.findIndex((w, i) => i < bw.length - 1 && aw.some((x, j) => same(x, bw[i + 1]) && aw[j + 1] && same(aw[j + 1], w)));
+      tips.push(pair >= 0 ? `Ojo con el orden: se dice ${q(bw[pair] + ' ' + bw[pair + 1])}, no ${q(bw[pair + 1] + ' ' + bw[pair])}.`
+        : `Tienes todas las palabras, pero en otro orden. Va así: ${q(target)}.`);
+    } else {
+      // las que se parecen son faltas de ortografía
+      for (const m of [...missing]) {
+        const e = extra.find(x => levenshtein(A(stripAccents(x)), A(stripAccents(m))) <= Math.max(1, Math.floor(A(m).length / 3)));
+        if (!e) continue;
+        missing.splice(missing.indexOf(m), 1);
+        extra.splice(extra.indexOf(e), 1);
+        const tip = same(e, m) ? accentTips(e, m)[0] : spellingTips(e, m, to)[0];
+        tips.push(`${q(e)} → ${q(m)}${tip ? `. ${tip}` : '.'}`);
+      }
+      if (missing.length) tips.push(`Te ha faltado ${missing.slice(0, 3).map(q).join(', ')}.`);
+      if (extra.length) tips.push(`Sobra ${extra.slice(0, 3).map(q).join(', ')}.`);
+      if (missing.length || extra.length) tips.push(`La frase es: ${q(target)}.`);
+    }
+    if (to === 'en') {
+      const g = GRAMMAR.find(([re, words]) => re.test(target) && words.some(w => missed.includes(w)));
+      if (g) tips.push('📌 ' + esc(g[2]));
+    }
+    return tips.slice(0, 4);
   }
+
+  // Pronunciación: la hace voice.js (elige la voz más clara). Devuelve false si no puede leer.
+  const speak = (text, lang, opts = {}) => Voice.speak(text, lang, opts);
 
   // Diccionario con ejemplos y pronunciación (WordReference)
   const dictLink = enWord => 'https://www.wordreference.com/es/translation.asp?tranword='
     + encodeURIComponent(String(enWord).split(' / ')[0].replace(/\(.*?\)/g, '').trim());
 
-  return { explain, speak, dictLink };
+  return { explain, explainPhrase, speak, dictLink };
 })();

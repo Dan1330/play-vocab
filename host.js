@@ -19,33 +19,29 @@ const SOLO_BAD_MS = 4500;      // ...y si fallas te deja leer la respuesta
 const cleanName = n => String(n || '').replace(/\s+/g, ' ').trim().slice(0, 16) || 'Jugador';
 const cleanAvatar = a => (AVATARS.includes(a) ? a : AVATARS[0]);
 
-// Temas (bloques de words.js). Se juega con los que estén marcados.
+// Temas (bloques de words.js) y secciones de expresiones (phrases.js). Se juega con los que estén marcados.
 const ALL_SETS = Object.keys(VOCAB);
 const validSets = sets => (Array.isArray(sets) ? sets : []).filter(k => ALL_SETS.includes(k));
 const countSets = sets => WORDS.filter(w => sets.includes(w.cat)).length;
-const cardKey = c => (c.from === 'en' ? c.prompt + '|' + c.answer : c.answer + '|' + c.prompt);
-const settingsCount = st => (Array.isArray(st.exam) && st.exam.length ? st.exam.length : countSets(st.sets || []));
-// Con "Solo las del examen" se juega exactamente con esas palabras (da igual el tema)
-const deckFor = settings => {
-  const sets = validSets(settings.sets);
-  const exam = Array.isArray(settings.exam) && settings.exam.length ? new Set(settings.exam) : null;
-  const cards = buildDeck({ ...settings, set: 'all' }).filter(c => (exam ? exam.has(cardKey(c)) : sets.includes(c.cat)));
-  return settings.answer === 'quiz' ? cards.map(withOptions) : cards;
+const cardKey = c => c.key || (c.from === 'en' ? c.prompt + '|' + c.answer : c.answer + '|' + c.prompt);
+const COUNT_OPTIONS = [10, 20, 30, 40, 50, 0]; // preguntas por partida (0 = todas)
+const TIME_OPTIONS = [10, 15, 20, 30, 60];     // segundos por pregunta (en la práctica, también 0 = sin límite)
+const CONTENTS = ['words', 'phrases', 'texts'];
+const DEFAULT_SETTINGS = {
+  content: 'words', sets: [...ALL_SETS], psets: [...ALL_PSETS], tsets: ALL_TSETS(), count: 20, time: 20, dir: 'mix',
+  wkinds: [...DEFAULT_KINDS.words], pkinds: [...DEFAULT_KINDS.phrases], tkinds: [...DEFAULT_KINDS.texts],
 };
+// Cuántas hay para elegir y cuántas se jugarán (al azar entre todas las marcadas)
+const poolCount = st => (st.content === 'phrases' ? countPhrases(validPsets(st.psets)) : st.content === 'texts' ? textPoolCount(st)
+  : Array.isArray(st.exam) && st.exam.length ? st.exam.length : countSets(st.sets || []));
+const settingsCount = st => (st.count > 0 ? Math.min(st.count, poolCount(st)) : poolCount(st));
+const UNITS = { words: ['palabra', 'palabras'], phrases: ['frase', 'frases'], texts: ['pregunta', 'preguntas'] };
+const unitName = (st, n) => (UNITS[st.content] || UNITS.words)[n === 1 ? 0 : 1];
 
-// Modo quiz: la respuesta buena y 3 palabras al azar (mejor del mismo tema) que no sean válidas
-function withOptions(card) {
-  const to = card.from === 'en' ? 'es' : 'en';
-  const ok = new Set(card.accepted.map(stripAccents));
-  const valid = w => w[to].label !== card.answer && !w[to].forms.some(f => ok.has(stripAccents(f)));
-  const pool = [...shuffle(WORDS.filter(w => w.cat === card.cat && valid(w))), ...shuffle(WORDS.filter(w => w.cat !== card.cat && valid(w)))];
-  const wrong = [];
-  for (const w of pool) {
-    if (!wrong.includes(w[to].label)) wrong.push(w[to].label);
-    if (wrong.length === 3) break;
-  }
-  const options = shuffle([card.answer, ...wrong]);
-  return { ...card, options, correct: options.indexOf(card.answer) };
+// Corrige una respuesta escrita (palabras o frases)
+function checkCard(card, text) {
+  if (!String(text || '').trim()) return 0;
+  return card.ph ? checkPhrase(text, card.accepted) : checkMulti(text, card.accepted);
 }
 
 // Corrige también varias respuestas a la vez ("calm/serene", "tranquilo/a", "calm or serene"):
@@ -85,8 +81,10 @@ class HostGame {
     this.onChange = onChange;  // pinta el estado en la pantalla del anfitrión
     this.mode = mode;          // 'duel' (1 vs 1), 'party' (multijugador) o 'solo' (práctica)
     this.max = MAX_PLAYERS[mode];
-    this.settings = settings ? { ...settings } : { sets: [...ALL_SETS], time: 20, dir: 'mix', answer: 'type' };
+    this.settings = { ...DEFAULT_SETTINGS, ...(settings || {}) };
     if (!validSets(this.settings.sets).length) this.settings.sets = [...ALL_SETS];
+    if (!validPsets(this.settings.psets).length) this.settings.psets = [...ALL_PSETS];
+    if (!validTsets(this.settings.tsets).length) this.settings.tsets = ALL_TSETS();
     this.players = [this.newPlayer(me)];
     this.phase = 'lobby';
     this.deck = [];
@@ -170,7 +168,12 @@ class HostGame {
       players: this.players.map(p => ({ ...p })),
       round: this.round,
       total: this.deck.length,
-      q: item ? { prompt: item.prompt, from: item.from, cat: item.cat, options: item.options || null } : null,
+      q: item ? {
+        prompt: item.prompt, from: item.from, to: item.to || (item.from === 'en' ? 'es' : 'en'), cat: item.cat,
+        options: item.options || null, kind: item.kind || (item.options ? 'quiz' : 'type'), ph: !!item.ph, tx: !!item.tx,
+        chips: item.chips || null, sub: item.sub || null, say: item.say || null, key: cardKey(item), fast: item.fast || FAST_MS,
+        ...(item.view || {}), // lo que se ve en cada tipo de ejercicio (texto del diálogo, parejas, pista…)
+      } : null,
       answered: Object.fromEntries(Object.keys(this.answers).map(id => [id, true])),
       reveal: this.phase === 'reveal' ? this.reveal : null,
       remaining: this.duration ? Math.max(0, this.endsAt - Date.now()) : 0,
@@ -378,7 +381,7 @@ class HostGame {
   submit(id, round, text, n = 1, choice = null) {
     if (this.phase !== 'question' || round !== this.round || n <= (this.actN[id] || 0)) return;
     this.actN[id] = n;
-    this.answers[id] = String(text || '').slice(0, 80);
+    this.answers[id] = String(text || '').slice(0, 160);
     this.answerMs[id] = Date.now() - this.qStart;
     this.choices[id] = Number.isInteger(choice) ? choice : null;
     delete this.prev[id];
@@ -424,11 +427,14 @@ class HostGame {
     let okCount = 0;
     for (const p of this.players) {
       const text = this.answers[p.id] || '';
-      const ok = quiz ? (this.choices[p.id] === item.correct ? 1 : 0) : text ? checkMulti(text, item.accepted) : 0;
+      const ok = quiz ? (this.choices[p.id] === item.correct ? 1 : 0)
+        : item.solution != null ? (text === item.solution ? 1 : 0) // parejas: todas bien unidas
+          : checkCard(item, text);
       const ms = p.id in this.answerMs ? this.answerMs[p.id] : null;
       if (ok) {
         p.streak++;
-        const fast = this.mode !== 'solo' && ms !== null && ms <= FAST_MS; // en práctica no hay bonus
+        // en práctica no hay bonus; con frases largas hay más margen para el "rápido"
+        const fast = this.mode !== 'solo' && ms !== null && ms <= (item.fast || FAST_MS);
         const bonus = this.mode === 'solo' ? 0 : streakBonus(p.streak);
         const pts = (fast ? 2 : 1) + bonus;
         p.score += pts;
@@ -443,8 +449,14 @@ class HostGame {
       }
       if (quiz) results[p.id].choice = this.choices[p.id];
     }
-    this.reveal = { answer: item.answer, also: quiz ? [] : item.also, results, correct: quiz ? item.correct : null };
-    const entry = { prompt: item.prompt, from: item.from, answer: item.answer };
+    this.reveal = {
+      answer: item.answer, also: quiz ? [] : item.also || [], results, correct: quiz ? item.correct : null,
+      ph: !!item.ph, kind: item.kind || (quiz ? 'quiz' : 'type'), sub: item.sub || null, full: item.full || null,
+      note: item.note || null, pairs: item.pairs || null, solution: item.solution || null,
+    };
+    const shown = item.kind === 'listen' || item.kind === 'spell' ? '🎧 Dictado' : item.kind === 'hear' ? '👂 ' + (item.say || '')
+      : item.kind === 'match' ? '🔗 Parejas' : item.kind === 'error' ? '🕵️ ' + item.options.join(' ') : item.prompt;
+    const entry = { prompt: shown, from: item.from, to: item.to, answer: item.answer, key: cardKey(item), sub: item.sub || null, kind: item.kind || 'type' };
     if (this.mode === 'party') { entry.ok = okCount; entry.n = this.players.length; }
     else entry.results = results;
     if (item.tries) entry.again = true; // repaso de una que habías fallado (modo aprender)
@@ -530,6 +542,21 @@ class HostGame {
       patch.sets = validSets(patch.sets);
       if (!patch.sets.length) return; // siempre al menos un tema
     }
+    if ('psets' in patch) {
+      patch.psets = validPsets(patch.psets);
+      if (!patch.psets.length) return; // y al menos una sección de expresiones
+    }
+    if ('tsets' in patch) {
+      patch.tsets = validTsets(patch.tsets);
+      if (!patch.tsets.length) return;
+    }
+    for (const [key, content] of [['wkinds', 'words'], ['pkinds', 'phrases'], ['tkinds', 'texts']]) {
+      if (key in patch) patch[key] = validKinds(patch[key], content);
+    }
+    if ('content' in patch && !CONTENTS.includes(patch.content)) return;
+    if ('count' in patch && !COUNT_OPTIONS.includes(patch.count)) return;
+    if ('time' in patch && !TIME_OPTIONS.includes(patch.time)) return;
+    if ('dir' in patch && !['mix', 'en', 'es'].includes(patch.dir)) return;
     if ('exam' in patch && patch.exam !== null) {
       patch.exam = (Array.isArray(patch.exam) ? patch.exam : []).filter(k => typeof k === 'string').slice(0, 1000);
       if (!patch.exam.length) patch.exam = null;

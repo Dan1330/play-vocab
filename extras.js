@@ -6,13 +6,32 @@ const Stats = (() => {
   try { Object.assign(data, JSON.parse(localStorage.getItem('vd_stats') || '{}')); } catch (e) {}
   const save = () => { try { localStorage.setItem('vd_stats', JSON.stringify(data)); } catch (e) {} };
   const rate = s => s.bad / (s.ok + s.bad);
+  const dayOf = d => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  // Días seguidos estudiando (cuenta el día en que contestas algo)
+  function touchDay() {
+    const days = data.days || (data.days = { last: '', streak: 0, best: 0 });
+    const today = dayOf(new Date());
+    if (days.last === today) return;
+    const yesterday = dayOf(new Date(Date.now() - 864e5));
+    days.streak = days.last === yesterday ? days.streak + 1 : 1;
+    days.best = Math.max(days.best, days.streak);
+    days.last = today;
+  }
   return {
     record(key, ok) {
       const s = data.w[key] || (data.w[key] = { ok: 0, bad: 0 });
       if (ok) s.ok++; else s.bad++;
       s.run = ok ? (s.run || 0) + 1 : 0; // aciertos seguidos
+      touchDay();
       save();
     },
+    // racha de días (0 si ayer no estudiaste)
+    get dayStreak() {
+      const days = data.days;
+      if (!days) return 0;
+      return days.last === dayOf(new Date()) || days.last === dayOf(new Date(Date.now() - 864e5)) ? days.streak : 0;
+    },
+    get studiedToday() { return !!data.days && data.days.last === dayOf(new Date()); },
     word(key) { return data.w[key] || { ok: 0, bad: 0 }; },
     // Nivel: 0 sin ver · 1 aprendiendo · 2 casi · 3 dominada (3 aciertos seguidos)
     level(key) {
@@ -20,9 +39,10 @@ const Stats = (() => {
       if (!s) return 0;
       return s.run >= 3 ? 3 : s.run === 2 ? 2 : 1;
     },
-    // Las que más te cuestan: las fallas al menos 1 de cada 3 veces (máx. 15)
-    hardKeys() {
-      return Object.entries(data.w).filter(([, s]) => s.bad > 0 && rate(s) >= 0.34)
+    // Las que más te cuestan: las fallas al menos 1 de cada 3 veces (máx. 15).
+    // filter: para separar palabras y expresiones
+    hardKeys(filter = () => true) {
+      return Object.entries(data.w).filter(([k, s]) => filter(k) && s.bad > 0 && rate(s) >= 0.34)
         .sort((a, b) => rate(b[1]) - rate(a[1]) || b[1].bad - a[1].bad)
         .slice(0, 15).map(([k]) => k);
     },
@@ -137,24 +157,32 @@ function shareExam() {
   }
 }
 
+// Temas abiertos en la lista del examen (cerrados se ve mejor cuántas has marcado de cada uno)
+const examOpen = new Set(ALL_SETS.length <= 3 ? ALL_SETS : []);
 function renderExam() {
   const q = stripAccents(norm(examQuery));
   $('examTotal').textContent = Exam.count ? `${plural(Exam.count, 'palabra seleccionada', 'palabras seleccionadas')}` : 'Aún no has seleccionado ninguna';
-  setHTML($('examList'), ALL_SETS.map(cat => {
+  const groupHTML = cat => {
     const words = WORDS.filter(w => w.cat === cat);
     const picked = words.filter(w => Exam.has(wordKeyOf(w))).length;
     const shown = words.filter(w => !q || [...w.en.forms, ...w.es.forms].some(f => stripAccents(f).includes(q)));
     if (!shown.length) return '';
-    return `<div class="exam-group">
-      <div class="exam-head"><b>${esc(VOCAB[cat].name)}</b><span class="pill">${picked} de ${words.length}</span>
+    const open = !!q || examOpen.has(cat); // al buscar se ven todas las que coinciden
+    return `<div class="exam-group${open ? ' open' : ''}">
+      <div class="exam-head"><button type="button" class="exam-toggle" data-toggle="${esc(cat)}"><span class="cg-arrow">▸</span><b>${esc(VOCAB[cat].name)}</b></button>
+        <span class="pill${picked ? ' some' : ''}">${picked} de ${words.length}</span>
         <button type="button" class="btn-mini" data-all="${esc(cat)}">✓ Todas</button>
         <button type="button" class="btn-mini" data-none="${esc(cat)}">✕ Ninguna</button></div>
-      ${shown.map(w => {
+      ${open ? shown.map(w => {
         const k = wordKeyOf(w);
         const on = Exam.has(k);
         return `<label class="exam-word${on ? ' on' : ''}"><input type="checkbox" data-key="${esc(k)}"${on ? ' checked' : ''}>
           <span class="cbox"></span><span class="ew-en">${esc(w.en.label)}</span><span class="ew-es">${esc(w.es.label)}</span></label>`;
-      }).join('')}</div>`;
+      }).join('') : ''}</div>`;
+  };
+  setHTML($('examList'), GROUPS.map(g => {
+    const html = ALL_SETS.filter(k => groupOf(k) === g).map(groupHTML).join('');
+    return html && GROUPS.length > 1 ? `<div class="exam-gtitle">${esc(g)}</div>${html}` : html;
   }).join('') || '<p class="msg">No hay ninguna palabra con esa búsqueda.</p>');
   $('examPractice').classList.toggle('hidden', !Exam.count || role === 'host' || role === 'guest');
   $('examShare').disabled = !Exam.count;
@@ -175,21 +203,7 @@ function closeExam() {
   examChanged();
 }
 
-// ---------- "¡Casi!": qué letras sobran y cuáles faltan ----------
-function levenshtein(a, b) {
-  const row = Array.from({ length: b.length + 1 }, (_, j) => j);
-  for (let i = 1; i <= a.length; i++) {
-    let prev = row[0];
-    row[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const tmp = row[j];
-      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
-      prev = tmp;
-    }
-  }
-  return row[b.length];
-}
-
+// ---------- "¡Casi!": qué letras sobran y cuáles faltan (levenshtein está en words.js) ----------
 // La respuesta aceptada más parecida a lo que has escrito
 function closestAnswer(text, reveal) {
   const input = norm(text);
@@ -216,15 +230,75 @@ function diffMarks(a, b) {
   return { a: outA, b: outB };
 }
 
+// Frases: qué palabras sobran (tachadas) y cuáles faltan (resaltadas)
+function wordDiff(a, b) {
+  const L = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  }
+  const outA = [], outB = [];
+  let i = 0, j = 0;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) { outA.push(esc(a[i++])); outB.push(esc(b[j++])); }
+    else if (j < b.length && (i === a.length || L[i][j + 1] >= L[i + 1][j])) outB.push(`<mark class="miss">${esc(b[j++])}</mark>`);
+    else outA.push(`<mark class="extra">${esc(a[i++])}</mark>`);
+  }
+  return { a: outA.join(' '), b: outB.join(' ') };
+}
+
+function phraseAlmost(res, reveal) {
+  const a = phraseWords(res.text, false);
+  let best = null;
+  for (const t of [reveal.answer, ...reveal.also].flatMap(expandPhrase)) {
+    const b = phraseWords(t, false);
+    const d = levenshtein(a, b);
+    if (!best || d < best.d) best = { b, d };
+  }
+  if (!best) return { near: false, html: '' };
+  const d = wordDiff(a, best.b);
+  if (res.ok === 2) return { near: false, html: `<div class="diff">✍️ Se escribe: <b>${d.b}</b></div>` };
+  const chars = levenshtein(Array.from(stripAccents(a.join(' '))), Array.from(stripAccents(best.b.join(' '))));
+  return { near: best.d <= 1 && chars <= 3, html: `<div class="diff">Tú: <span>${d.a || '—'}</span><br>Era: <b>${d.b}</b></div>` };
+}
+
 // { near, html }: si has fallado por poco (o te falta una tilde), enseña dónde
 function almostInfo(res, reveal) {
-  if (!res || !res.text || res.ok === 1 || !reveal || typeof reveal.correct === 'number') return { near: false, html: '' }; // en el quiz no
+  if (!res || !res.text || res.ok === 1 || !reveal || typeof reveal.correct === 'number' || reveal.kind === 'match') return { near: false, html: '' }; // al elegir no
+  if (reveal.ph && (!reveal.full || String(reveal.answer).includes(' '))) return phraseAlmost(res, reveal); // frases: palabra a palabra
   const c = closestAnswer(res.text, reveal);
   if (!c) return { near: false, html: '' };
   const d = diffMarks(c.input, c.target);
   if (res.ok === 2) return { near: false, html: `<div class="diff">✍️ Se escribe: <b>${d.b}</b></div>` };
   const near = c.d <= Math.max(1, Math.floor(Array.from(c.target).length / 4));
   return near ? { near, html: `<div class="diff">Tú: <span>${d.a}</span><br>Era: <b>${d.b}</b></div>` } : { near: false, html: '' };
+}
+
+// ---------- Portada: panel de progreso y marquesina ----------
+function renderDash() {
+  const words = WORDS.filter(w => Stats.level(wordKeyOf(w)) === 3).length;
+  const phrases = PHRASES.filter(p => Stats.level(phraseKeyOf(p)) === 3).length;
+  let grade = null, talks = 0;
+  try {
+    const ex = JSON.parse(localStorage.getItem('vd_examscores') || '{}');
+    for (const s of Object.values(ex)) if (s.sim != null) grade = Math.max(grade || 0, s.sim / 10);
+    talks = Object.keys(JSON.parse(localStorage.getItem('vd_talk') || '{}')).length;
+  } catch (e) {}
+  const streak = Stats.dayStreak;
+  const stat = (big, small, label, pct = null, cls = '') => `<div class="stat ${cls}"><div class="s-top"><b>${big}</b><small>${small}</small></div>
+    <span class="s-label">${label}</span>${pct === null ? '' : `<div class="bar"><i style="width:${Math.round(pct * 100)}%"></i></div>`}</div>`;
+  $('dash').innerHTML = [
+    stat(`🔥 ${streak}`, streak === 1 ? 'día' : 'días', streak ? (Stats.studiedToday ? 'Racha de estudio' : '¡Juega hoy para no perderla!') : '¡Empieza tu racha hoy!', null, 'fire'),
+    stat(words, `/ ${WORDS.length}`, '🌳 Palabras dominadas', words / WORDS.length),
+    stat(phrases, `/ ${PHRASES.length}`, '💬 Frases dominadas', phrases / PHRASES.length),
+    grade === null ? stat('—', '', `📝 Simulacro de examen${talks ? ` · 🎭 ${talks}` : ''}`) : stat(String(grade).replace('.', ','), '/ 10', '📝 Mejor simulacro', grade / 10),
+  ].join('');
+}
+
+// Marquesina con expresiones del PDF (al azar), dos veces seguidas para que dé la vuelta sin cortes
+function fillTicker() {
+  const list = shuffle(PHRASES.map(p => p.en.replace(/[.!?]+$/, ''))).slice(0, 24);
+  const html = list.map(t => `<span>${esc(t)}</span>`).join('');
+  $('tickerTrack').innerHTML = html + html;
 }
 
 // ---------- Código QR de la sala ----------
@@ -303,7 +377,29 @@ function renderMusicPanel() {
     : canSet ? '🎧 Eres el anfitrión: la música que pongas la escuchará toda la sala.' : '🔒 En la sala, la música la elige el anfitrión.';
 }
 
+// Voz en inglés: la más clara va primero (⭐); si no hay ninguna, cómo conseguirla
+function renderVoicePanel() {
+  const sel = $('voiceSelect');
+  const list = Voice.englishVoices();
+  for (const b of $('voiceRate').children) b.classList.toggle('on', Number(b.dataset.rate) === Voice.prefs.rate);
+  if (!list.length) {
+    sel.innerHTML = '<option>(no hay ninguna voz en inglés)</option>';
+    sel.disabled = $('voiceTest').disabled = true;
+    $('voiceNote').innerHTML = '⚠️ Este navegador no tiene ninguna voz en inglés. Abre el juego en <b>Chrome</b> o <b>Edge</b> (tienen voces muy claras) '
+      + 'o instala la voz inglesa en Windows: <i>Configuración → Hora e idioma → Voz → Agregar voces → English (United Kingdom)</i>.';
+    return;
+  }
+  const best = list[0];
+  sel.innerHTML = `<option value="">⭐ Automática: ${esc(best.name)}</option>`
+    + list.map(v => `<option value="${esc(v.name)}">${Voice.quality(v) >= 45 ? '⭐ ' : ''}${esc(v.name)} (${esc(v.lang)})</option>`).join('');
+  sel.value = list.some(v => v.name === Voice.prefs.name) ? Voice.prefs.name : '';
+  sel.disabled = $('voiceTest').disabled = false;
+  $('voiceNote').textContent = Voice.quality(best) >= 45 ? 'Las voces con ⭐ son las más claras.'
+    : 'Para una voz más clara y natural, abre el juego en Microsoft Edge (voces «Natural») o en Chrome (voces de Google).';
+}
+
 function openMusic() {
+  Voice.onReady(renderVoicePanel);
   renderMusicPanel();
   $('ytMsg').textContent = '';
   $('musicModal').classList.remove('hidden');
